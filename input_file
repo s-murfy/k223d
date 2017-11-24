@@ -1,0 +1,33 @@
+# Input file for k223d program
+
+# Input of general parameters for composite source model   
+#  mu = rigidity
+#  rmin = minimum asperity radius (set relative to average element area)
+#  rmax = maximum asperity radius (set relative to width of fault)
+#  na = number of asperities to be placed on fault 
+#  mesh_file = name of file containing unstructured mesh
+&GENERAL  mu=3.0e10, rmin=2.0, rmax=0.35, na = 5000, mesh_file='Scotia.inp' /
+
+# Earthquake  parameters 
+# param_type : define earthquake size, there are two options
+#              magnitude (mw) or stress drop (sd)
+#              if using stress drop then defined_area = .false. as it  requires 
+#                 a magnitude  
+# defined_area = true if using Strasser area or false if using whole mesh
+#              = false if using whole mesh  
+&SIZE  param_type='mw',  param=8.5, defined_area=.true.   /
+ 
+# Probabilistic Density Distribution used for choosing location of asperities
+# pdf_type = 'uniform' = uniform pdf 
+#            'gauss'   = gaussian pdf 
+#            'defined' = user defined pdf (the pdf has to be defined per cell)
+&PDF pdf_type='uniform'      /
+
+# Secondary PDF parameters: 
+#         gauss_no = no. of gaussians if pdf_type='gauss' 
+#         fname = name of ascii file containing pdf, used  if pdf_type='defined        
+&PDF2 gauss_no=3, fname=''   /
+
+# Output information : file type and name      
+&OUTPUT  out_type='vtk', out_file='prova'  /
+
