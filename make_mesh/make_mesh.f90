@@ -29,7 +29,6 @@ close(11)
 !n_z = 25   ! number of nodes down dip
 !dx  = 1000.
 !dz  = 1000.
-
 call create_mesh(n_x,n_z,dx,dz,elem)
 
 !call output_mesh(elem)
@@ -63,8 +62,8 @@ inx = 0
 do j = 1,n_z
   do i = 1,n_x
          inx = inx+1
-         elem%VX(inx) = dx*float(i-1)*float(n_x)
-         elem%VY(inx) = dz*float(j-1)*float(n_z)
+         elem%VX(inx) = dx*float(i-1)
+         elem%VY(inx) = dz*float(j-1)
          elem%VZ(inx) = 0.
     enddo
 enddo
