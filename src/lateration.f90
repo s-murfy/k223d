@@ -21,7 +21,7 @@ implicit none
          integer,allocatable,dimension(:,:) ::  EToE  ! Elements to Elemeents
          integer,allocatable,dimension(:) :: QuakeElem,QuakeNodes ! Array of elements and nodes that make up slipping zone
          integer :: QuakeBorder_NodesNo, QuakeBorder_ElemNo ! Number of elements and nodes forming the slipping zone border
-         integer,allocatable,dimension(:) :: QuakeBorder_Nodes, QuakeBorder_Elem ! Elements and nodes forming the slipping zone border
+         integer,allocatable,dimension(:) :: QuakeBorder_Nodes, QuakeBorder_Elem ! Index of elements and nodes forming the slipping zone border
          real,allocatable,dimension(:) ::Dist2Border  ! distance matrix to boundary of fault
          real,allocatable,dimension(:) :: px,py,pz,area,slip ! Coordinates of the nodes; area of each element; slip in each element
   end type mesh

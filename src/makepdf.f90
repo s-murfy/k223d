@@ -31,6 +31,10 @@ select case(gausspar%pdf_type)
               gausspar%vertexcenter(i)=findgausscentre(amesh,5.e3)
               gausspar%sizeandhigh(i,1)=sqrt(target_area)/3.
               gausspar%sizeandhigh(i,2)=1.                           ! relative weight
+              print*,  gausspar%vertexcenter(i)
+              print*,gausspar%sizeandhigh(i,1),gausspar%sizeandhigh(i,2)
+
+
           enddo
    case default
         write(*,*) 'ERROR in asigning pdf type'
@@ -54,6 +58,8 @@ implicit none
   integer :: i,j,k
   real, dimension(3) :: pdfvertexofcurrentcell
   real :: d,ug,pdfint,totarea
+  real, dimension(amesh%Ncells) :: pdfout
+
 
   totarea=0.
   do i=1,amesh%QuakeElemNo ! loop on all the cells
@@ -63,6 +69,7 @@ implicit none
      do j=1,gausspar%ng ! loop on the gaussian
         do k=1,3 ! loop on the vertex of the cell
            d=amesh%dist(amesh%QuakeNodes(gausspar%vertexcenter(j)),amesh%cell(amesh%QuakeElem(i),k))
+!           d=amesh%dist(amesh%QuakeNodes(gausspar%vertexcenter(j)),amesh%cell(amesh%QuakeElem(i),k))
            ug=exp(-d**2./2./gausspar%sizeandhigh(j,1)**2.)
            pdfvertexofcurrentcell(k)=pdfvertexofcurrentcell(k)+ug*gausspar%sizeandhigh(j,2)
         enddo
@@ -71,12 +78,13 @@ implicit none
      do j=1,3
         pdf(i)=pdf(i)+pdfvertexofcurrentcell(j)
      enddo
-     pdf(i)=pdf(i)/3.*amesh%area(amesh%QuakeElem(i))
-     totarea=totarea+amesh%area(amesh%QuakeElem(i))
+!     pdf(i)=pdf(i)/3.*amesh%area(amesh%QuakeElem(i))
+     pdf(i)=pdf(i)/3.
+!     totarea=totarea+amesh%area(amesh%QuakeElem(i))
   enddo
   pdfint=0.
   do i=1,amesh%QuakeElemNo
-     pdf(i)=pdf(i)/totarea
+!     pdf(i)=pdf(i)/totarea
      pdfint=pdfint+pdf(i)
   enddo
   ug=0.
@@ -84,7 +92,28 @@ implicit none
      pdf(i)=pdf(i)/pdfint
      ug=ug+pdf(i)
   enddo
+
+
+  !  pdfout=0.
+  !  do i=1,amesh%QuakeElemNo
+  !     pdfout(amesh%QuakeElem(i))=pdf(i)
+  !  enddo
+  !open(22,file='pdf.vtk')
+  !call dumpmeshvtk(22,amesh)
+  !call dumpcellattributevtk(22,amesh,pdfout,'pdf',.true.)
+  !close(22)
+
 end subroutine faultpdf
+!#######################################################################################
+subroutine uniform_pdf(pdf,amesh)
+implicit none
+
+type(mesh) :: amesh
+real, dimension(amesh%QuakeElemNo) :: pdf
+
+pdf = 1./float(amesh%QuakeElemNo-1)
+
+end subroutine uniform_pdf
 !#######################################################################################
  subroutine pdftoslip(model,amesh,pdf_type,pdf)
   use typedef
@@ -100,6 +129,7 @@ end subroutine faultpdf
   real, parameter :: pi=acos(-1.)
   integer :: i,j,k,idxmax,cellidx,casp,cnt
   character(7),intent(in) :: pdf_type
+  real, dimension(amesh%Ncells) :: pdfout
 
 ! rough estimate of length and width of fault
   call wl(amesh,length,width,area,dx)
@@ -164,7 +194,7 @@ end select
         do while (r(i) > db)
            cnt=cnt+1
            if (cnt == 100 ) then
-              write(0,*) "Error: fault size too small relative to asperity size"
+              write(0,*) "Error: fault size too small relative to RMAX value"
               stop
            endif
            curcum=0.
@@ -208,12 +238,14 @@ end select
   enddo
   mf=mf*model%mu
   write(*,*) "difference to moment target : ",100*(mf-model%moment)/model%moment,"%"
+  print*,mf,model%moment
   do i=1,amesh%QuakeElemNo
      amesh%slip(i)=amesh%slip(i)/mf*model%moment
   enddo
+
+
   return
 end subroutine pdftoslip
-
 !#######################################################################################
 subroutine wl(amesh,length,width,area,dx)
 
@@ -295,7 +327,7 @@ function findgausscentre(amesh,dist)
        do j=1,amesh%QuakeBorder_NodesNo
          if (amesh%dist(amesh%QuakeNodes(i),amesh%QuakeBorder_Nodes(j)) < dist) then
               good2use = .false.
-              exit
+              cycle
          endif
        enddo
         if (good2use) then
@@ -307,11 +339,13 @@ function findgausscentre(amesh,dist)
     call random_number(x)
 
     if (inx == 0) then
-        write(*,*) 'ERROR in findgausscentre, edge is too large relative to fault size'
+        write(*,*) 'ERROR in findgausscentre, edge is too close relative to fault size'
         stop
     endif
     id = floor(x*float(inx))+1
     findgausscentre = keep_id(id)
+!    findgausscentre = 929
+!    print*,'WARNING: gaussian centre is set to 929!!!!!!!'
 
 end function findgausscentre
 !##########################################################################

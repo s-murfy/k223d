@@ -298,7 +298,6 @@ do i = 1,amesh%Ncells
        else
          amesh%cell(i,1) = idx(1)
        endif
-
        if (allocated(idx)) deallocate(idx)
        call  find(counter,'==',b,idx)
 

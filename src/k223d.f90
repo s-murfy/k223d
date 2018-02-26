@@ -57,12 +57,20 @@ call multisource(amesh)
 allocate(pdf(amesh%QuakeElemNo))
 select case(gausspar%pdf_type)
   case('gauss')
-!  write(*,*)'set up pdf'
+  write(*,*)'set up pdf'
   call set_pdf(gausspar,amesh,model%target_area)              !set the pdf for the distribution of cracks on fault plane
-!  write(*,*)'calc fault pdf'
+  write(*,*)'calc fault pdf'
   call faultpdf(gausspar,pdf,amesh)
+
   case('defined')    ! pdf has been defined in an ascii file
   call read_pdf_file(gausspar%pdf_fname,pdf,amesh)
+
+case('uniform')
+  call uniform_pdf(pdf,amesh)
+
+  case default
+  write(*,*)'ERROR reading defintion of pdf type'
+  stop
 end select
 
 ! place slip on fault
@@ -71,28 +79,33 @@ call pdftoslip(model,amesh,gausspar%pdf_type,pdf)
 
 !output
 !write(*,*)'write out slip distribtion'
-call  write_out(amesh,out_type,out_file)
+call  write_out(amesh,out_type,out_file,pdf)
 
 write(*,*) 'Program finish okay'
 stop
 end program k223d
 !###############################################################################
-subroutine write_out(amesh,out_type,out_file)
+subroutine write_out(amesh,out_type,out_file,pdf)
 use typedef
 implicit none
 type(mesh) :: amesh        ! main structure
 character(3) :: out_type   !type of output file
 character(30) :: out_file  ! name of output file
 character(34) :: filename  ! name of output file with extension
+real, dimension(amesh%QuakeElemNo) :: pdf
 
-real, dimension(:), allocatable :: slipout
+real, dimension(:), allocatable :: slipout,pdfout
 integer :: i,j
 
 ! assigning a slip value to every element in whole mesh
 allocate(slipout(amesh%Ncells))
+allocate(pdfout(amesh%Ncells))
+
 slipout=0.
+pdfout=0.
 do i=1,amesh%QuakeElemNo
-   slipout(amesh%QuakeElem(i))=amesh%slip(i)
+  slipout(amesh%QuakeElem(i))=amesh%slip(i)
+  pdfout(amesh%QuakeElem(i))=pdf(i)
 enddo
 
 select case(out_type)
@@ -118,6 +131,7 @@ case('vtk')
   call dumpmeshvtk(11,amesh)
   call dumpcellattributevtk(11,amesh,slipout,'slip',.true.)
   call dumpnodeattributevtk(11,amesh,amesh%Dist2Border,'Dist2Border',.true.)
+  call dumpcellattributevtk(11,amesh,pdfout,'pdf',.true.)
 
   close(11)
 
