@@ -13,7 +13,7 @@
 #  na = number of asperities to be placed on fault
 #  mesh_file = name of file containing unstructured mesh
 
-&GENERAL  mu=3.0e10, rmin=3., rmax=0.4, na = 10000, mesh_file='test.inp' /
+&GENERAL  mu=3.0e10, rmin=2., rmax=0.35, na = 10000, mesh_file='test.inp' /
 
 # Earthquake  parameters
 # param_type : define earthquake size, there are two options
@@ -22,18 +22,18 @@
 # param :     this the value given either to the magnitude or stress drop (in Pa)
 # defined_area = true if using Strasser area
 #              = false if using whole mesh
-&SIZE  param_type='mw',  param=7.0, defined_area=.false.   /
+&SIZE  param_type='mw',  param=7.1, defined_area=.false.   /
 
 # Probabilistic Density Distribution used for choosing location of asperities
 # pdf_type = 'uniform' = uniform pdf
 #            'gauss'   = gaussian pdf
 #            'defined' = user defined pdf (the pdf has to be defined per cell)
-&PDF1 pdf_type='uniform'      /
+&PDF1 pdf_type='gauss'      /
 
 # Secondary PDF parameters:
 #         gauss_no = no. of gaussians if pdf_type='gauss'
 #         fname = name of ascii file containing pdf, used  if pdf_type='defined
-&PDF2 gauss_no=1, fname='pdf.dat'   /
+&PDF2 gauss_no=1, fname=''   /
 
 # Surface parameters
 #  surf_exists   = specifying if there is a free surface  (.true./.false.)
