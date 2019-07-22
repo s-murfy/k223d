@@ -1,40 +1,101 @@
 module lateration
-! work in progress 0710
-!   done 071006 - initialization of ntodo inside onevsall
 implicit none
+! 2017/11/23
+! This code is released on the following Public Domain license :
+! The unlicense.
+! Version 1.0
+!     This version of the code corresponds to the paper submitted in GJI
+!     It is written in Fortran90.
+!     The unstructured mesh is defined by the type "mesh" composed by
+!     "Nnodes" vertices and "Ncells" faces. The coordinates of the vertices
+!     in the 3D cartesian space are "px, py, pz". "cell" is the index array
+!     defining the faces. Its dimension is "Ncells*3" because the code works
+!     on triangular faces, defined by three vertices.
+!     Warning : The indices of the vertex start to 1.
+!     main routines :
+!     - one source versus all the vertices of the mesh
+!          onevsall2d(amesh,dist,fast)
+!             this is the main routine.
+!             in : "amesh" is an unstructured mesh
+!             in : "fast" is a logical. Put it to false to trigger a search
+!                  for diffraction point. If your mesh is simple, fast=.true.
+!                  should be enough.
+!             inout : "dist" is the distance array. Its dimension is "Nnodes".
+!                     This array needs to be allocated and initialized first.
+!          pre_onevsall2d_onvertex(amesh,k,dist)
+!             this routine helps the users to initialize the distance array when
+!             the source is on a vertex
+!             in : "amesh" is an unstructured mesh
+!             in : "k" is the index of the vertex (1 =< k =< Nnodes)
+!             out : "dist" is the output distance array. This routine allocates it, initializes
+!                   it to infinity except for dist(k)=0.
+!         pre_onevsall2d_offvertex(amesh,dist,v,d)
+!             Same routine as above but in the case where the source is not on a vertex but
+!             on a face.
+!             in : "amesh" is an unstructured mesh
+!             in : "v" is an index array of dimension 3 indicating the indices of the vertices
+!                  defining the face where is located the source
+!             in : "d" is a small distance array of dimension 3 which for each vertex in "v"
+!                  indicates the distance of this vertex to the source.
+!             out : "dist" is the output distance array. This routine allocates it, initializes
+!                   it to infinity except for dist(v)=d.
+!     - compute a distance matrix (fast option always true)
+!         allvsall2d(amesh,dist)
+!             in : "amesh" is an unstructured mesh
+!             out : "dist" is the output distance matrix of dimensions (Nnodes*Nnodes)
+!
+!    Compilation : compile this fortran module with a Fortran90 compiler. This code has been
+!                  tested on linux and Freebsd systems with a gnu gfortran compiler.
+!
+!         For any questions or problems : andre.herrero at ingv.it
+
+!  type mesh
+!    integer :: Nnodes,Ncells
+!    real, dimension(:), allocatable :: px,py,pz
+!    integer, dimension(:,:), allocatable :: cell
+!  end type mesh
 
   type model_param
-    integer :: na
-    integer :: gauss_no
-    real :: mu, rmin, rmax, param
-    real :: sd,mw,target_area,moment
-    character(3) :: param_type
-    logical :: defined_area
+      integer :: na
+      integer :: gauss_no
+      real :: mu, rmin, rmax, param
+      real :: sd,mw,target_area,moment,target_width
+      real :: actual_area,actual_width,actual_length
+      character(3) :: param_type
+      logical :: defined_area
   end type model_param
+
+  type surface_type
+           real :: z0
+           character(30) :: filename
+           logical :: use_file,exists
+end type surface_type
 
 
   type mesh
-         integer :: Nnodes,Ncells             ! Number of Nodes ; Number of element
-         integer :: QuakeElemNo,QuakeNodesNo ! Number of Elements and nodes for an earthquake
-         real,allocatable,dimension(:,:) :: dist ! distance matrix
-         integer,allocatable,dimension(:,:) ::  cell
-         integer,allocatable,dimension(:,:) ::  EToE  ! Elements to Elemeents
-         integer,allocatable,dimension(:) :: QuakeElem,QuakeNodes ! Array of elements and nodes that make up slipping zone
-         integer :: QuakeBorder_NodesNo, QuakeBorder_ElemNo ! Number of elements and nodes forming the slipping zone border
-         integer,allocatable,dimension(:) :: QuakeBorder_Nodes, QuakeBorder_Elem ! Index of elements and nodes forming the slipping zone border
-         real,allocatable,dimension(:) ::Dist2Border  ! distance matrix to boundary of fault
-         real,allocatable,dimension(:) :: px,py,pz,area,slip ! Coordinates of the nodes; area of each element; slip in each element
+           integer :: Nnodes,Ncells             ! Number of Nodes ; Number of element
+           integer :: QuakeElemNo,QuakeNodesNo ! Number of Elements and nodes for an earthquake
+           real,allocatable,dimension(:,:) :: dist ! distance matrix
+           integer,allocatable,dimension(:,:) ::  cell
+           integer,allocatable,dimension(:,:) ::  EToE  ! Elements to Elemeents
+           integer,allocatable,dimension(:) :: QuakeElem,QuakeNodes ! Array of elements and nodes that make up slipping zone
+           integer :: QuakeBorder_NodesNo, QuakeBorder_ElemNo ! Number of elements and nodes forming the slipping zone border
+           integer,allocatable,dimension(:) :: QuakeBorder_Nodes, QuakeBorder_Elem ! Index of elements and nodes forming the slipping zone border
+           real,allocatable,dimension(:) ::Dist2Border ! distance matrix to boundary of fault
+           real,allocatable,dimension(:) :: px,py,pz,mz,area,slip,slip_prim,slip_sec ! Coordinates of the nodes; area of each element; slip in each element
+           integer  :: NoSurfNodes                         ! no. of surface nodes
+           integer,allocatable,dimension(:)  :: SurfNodes  ! nodes that are designated along the surface
   end type mesh
 
   type pdfinputs
-     character(30) :: pdf_fname
-     character(7) :: pdf_type
-     integer :: ng
-  ! pointer to a Node number of the Quake
-     integer, dimension(:), allocatable :: vertexcenter
-     real, dimension(:,:), allocatable :: sizeandhigh
+       character(30) :: pdf_fname
+       character(7) :: pdf_type
+       integer :: ng
+    ! pointer to a Node number of the Quake
+       integer, dimension(:), allocatable :: vertexcenter
+       real, dimension(:,:), allocatable :: sizeandhigh
+       real, dimension(:), allocatable ::  g_pdf
   end type pdfinputs
-
 
   type listn
     integer :: idnode
@@ -99,7 +160,7 @@ subroutine allvsall2d(amesh,distarray)
   do k=1,amesh%Nnodes
   if (verbose) write(*,*) '##############################################################'
   if (verbose) write(*,*) 'distance from node #',k,'/',amesh%Nnodes
-     call printperc(k,amesh%Nnodes)
+!     call printperc(k,amesh%Nnodes)
 ! initializing  node todo list
      if (verbose) write(*,*) 'entering vicinode'
      call vicinode(amesh,k,ntoc(k)%ptr,ntodo)
@@ -210,26 +271,6 @@ subroutine allvsall2d(amesh,distarray)
   call deallocntoc(ntoc,amesh%Nnodes)
 end subroutine allvsall2d
 !###############################################################################
-subroutine multisource(amesh)
-  implicit none
-  type(mesh) :: amesh
-  integer :: i
-  logical :: fast
-
-!initialise array
-allocate(amesh%Dist2Border(amesh%Nnodes))
-amesh%Dist2Border=infinity
-do i=1,amesh%QuakeBorder_NodesNo
-     amesh%Dist2Border(amesh%QuakeBorder_Nodes(i))=0.
-enddo
-
-! calculate distance to boundary
-fast = .false.
-call onevsall2d(amesh,amesh%Dist2Border,fast)
-
-return
-end subroutine multisource
-!###############################################################################
 subroutine pre_onevsall2d_offvertex(amesh,distarray,v,d)
 ! initialisation of onevsall2d in case of a unique source at the
 ! distance d(1), d(2) and d(3) from vertice v(1), v(2) and v(3) respectively of the SAME face.
@@ -244,7 +285,7 @@ subroutine pre_onevsall2d_offvertex(amesh,distarray,v,d)
   integer :: i
   type(listn), pointer :: pcur
 
-!   allocation
+  !   allocation
   allocate(distarray(amesh%Nnodes))
 !   initialisation to infinity
   distarray=infinity
@@ -310,7 +351,7 @@ subroutine onevsall2d(amesh,dist,fast)
         nullify(ntodo%previous)
         nullify(ntodo%next)
         pcur=>ntodo
-        begin = .false.
+        begin=.false.
      else
         allocate(pcur%next)
         nullify(pcur%next%next)
@@ -467,7 +508,6 @@ subroutine onevsall2d(amesh,dist,fast)
   enddo ! end reloop section
 ! deallocating ntoc
   call deallocntoc(ntoc,amesh%Nnodes)
-!  write(0,*) 'maximun sweep numner : ',mxswp
 end subroutine onevsall2d
 !###############################################################################
 subroutine wipe(ntodo)
@@ -476,7 +516,7 @@ subroutine wipe(ntodo)
   type(listn), pointer :: p1,p2
 
   if (.not.associated(ntodo)) then
-     write(*,*) "warning... ntodo is unassociated yet"
+     write(*,*) "warning... ntodo is unassociated already"
      return
   endif
   if (.not.associated(ntodo%next)) then
@@ -570,151 +610,6 @@ subroutine removepminfromthelist(pmin,ntodo)
   return
 end subroutine removepminfromthelist
 !###############################################################################
-subroutine timeonevsall2d(amesh,k,time,velocity)
-
-! given a mesh (amesh) and velocities (velocity) defined on
-! the mesh cells, timeonevsall2d computes the first arrival
-! time from the node number k to all the nodes of the mesh
-! (time)
-
-  type(mesh) :: amesh
-  real, dimension(:), allocatable :: time
-  real, dimension(amesh%Ncells) :: velocity
-  integer :: k
-
-  type(container), dimension(amesh%Nnodes) :: ntoc
-  type(listn), pointer :: ntodo,cellcur,pcur,last
-  real :: d13,d23,d12,t1,t2,tface,tedge,ttest
-  integer, dimension(2) :: otherninc
-  integer :: i,j,toggle
-  logical :: begin,hasbeenupdated
-  integer :: nswp,mxswp
-
-  mxswp=0
-! intialisation of time array
-!     allocation
-  allocate(time(amesh%Nnodes))
-!     set to infinity
-  time=infinity
-!     k nodes set to zero
-  time(k)=0.
-! computing the node-to-cell array ntoc
-  call compntoc(amesh,ntoc)
-  if (verbose) write(*,*) 'ntoc(500)%ptr%idnode',ntoc(500)%ptr%idnode
-  if (verbose) write(*,*) '##############################################################'
-  if (verbose) write(*,*) 'distance from node #',k,'/',amesh%Nnodes
-! initializing  node todo list and the time associated to them
-  if (verbose) write(*,*) 'entering vicinode'
-  if (verbose) write(*,*) 'ntoc(k)%ptr%idnode',ntoc(k)%ptr%idnode
-  if (verbose) call printlist(ntoc(k)%ptr)
-  call startime(amesh,k,ntoc(k)%ptr,ntodo,time,velocity)
-! loop on the to do list
-  if (verbose) call printlist(ntodo)
-  if (verbose) write(*,*) 'entering in the ntodo list management loop'
-  do while (associated(ntodo))
-! searching the cells attached to the first element of the to do list
-        if (verbose) write(*,*) 'state of ntodo :'
-        if (verbose) call printlist(ntodo)
-        if (verbose) write(*,*) 'propagating time from node #',ntodo%idnode
-        if (verbose) write(*,*) 'its own time is :',time(ntodo%idnode)
-!    initilisation of the sweep loop
-        hasbeenupdated=.true.
-        toggle=2
-        nswp=0
-!    sweep loop up to the stabilisation (hasbeenupdated=.false.)
-        do while (hasbeenupdated)
-        nswp=nswp+1
-        hasbeenupdated=.false.
-!    toggle variable swap state between 1 and 2 at each sweep
-        toggle=3-toggle
-        if (verbose) then
-        if (toggle==1) write(*,*) 'seep forward on cellist'
-        if (toggle==2) write(*,*) 'seep backward on cellist'
-        endif
-!    pointer on the beginning or the end of the list of cells containing the node idnode
-        if (toggle==1) then
-           pcur=>ntoc(ntodo%idnode)%ptr
-        else
-           pcur=>last
-        endif
-!    cell list sweeping
-        do while (associated(pcur))
-!     find the two complemantory nodes in the current cell
-            if (verbose) write(*,*) '    working on cell #',pcur%idnode
-            call givencomp(amesh,otherninc,pcur,ntodo)
-            if (verbose) write(*,*) '    complemantory nodes : ',otherninc
-!     loop on the two complemantory nodes
-            do i=1,2
-               if (verbose) write(*,'(a4,4(i4.4))') 'code',k,ntodo%idnode,pcur%idnode,otherninc(i)
-               if (verbose) write(*,*) '       working on complemantory nodes :',otherninc(i)
-!     edge propagation
-               tedge=time(ntodo%idnode)+tonedge(amesh,ntodo%idnode,otherninc(i),velocity(pcur%idnode))
-               if (verbose) write(*,*) 'tedge : ',time(ntodo%idnode),'+',&
-                   tonedge(amesh,ntodo%idnode,otherninc(i),velocity(pcur%idnode))
-               if (verbose) write(*,*) 'tedge : ',tedge
-!     face propagation when time on 2 nodes are available
-               if (time(otherninc(3-i)) /= infinity) then
-                  if (verbose) write(*,*) 'computing tface because ',time(otherninc(3-i)),&
-                     ' is not infinity'
-!     edge lengths in the current cell
-                  d12=donedge(amesh,ntodo%idnode,otherninc(3-i))
-                  d13=donedge(amesh,otherninc(i),ntodo%idnode)
-                  d23=donedge(amesh,otherninc(i),otherninc(3-i))
-                  if (verbose) write(*,*) 'd12,d13,d23 :',d12,d13,d23
-!     time associated to the 2 nodes for the lateration computation
-                  t1=time(ntodo%idnode)
-                  t2=time(otherninc(3-i))
-                  if (verbose) write(*,*) 't1,t2 : ',t1,t2
-!     multi lateration kernel
-                  tface=tcircle(d12,d13,d23,t1,t2,velocity(pcur%idnode))
-                  if (verbose) write(*,*) 'tface : ',tface
-               else
-                  tface=infinity
-               endif
-!     result is the minimum between edge propagation and face propagation
-               ttest=min(tedge,tface)
-!              ttest=tedge
-               if (verbose) write(*,*) 'ttest=min(tedge,tface) : ',ttest
-               if (verbose) write(*,*) 'ttest < time between',k,' and ',otherninc(i)
-               if (verbose) write(*,*) ttest,time(otherninc(i))
-!     better result found - updating process
-               if (ttest < time(otherninc(i))) then
-                  if (verbose) write(*,*) 'better !'
-                  time(otherninc(i))=ttest
-                  hasbeenupdated=.true.
-!     time is better : if not in the list, add it
-                  if (verbose) write(*,*) 'updatelist with :',otherninc(i)
-                  call updatelist(otherninc(i),ntodo)
-                  if (verbose) write(*,*) 'state of ntodo :'
-                  if (verbose) call printlist(ntodo)
-               endif
-            enddo
-! moving on the vicinity list
-            if (toggle==1) then
-               last=>pcur
-               pcur=>pcur%next
-            else
-               pcur=>pcur%previous
-            endif
-        enddo
-        enddo
-        mxswp=max(mxswp,nswp)
-! move the pointer on the second element of the to do list
-! remove the first element of the to do list
-        if (associated(ntodo%next)) then
-           ntodo=>ntodo%next
-           deallocate(ntodo%previous)
-           nullify(ntodo%previous)
-        else
-! no node to do anymore.
-           nullify(ntodo)
-        endif
-      enddo
-! deallocating ntoc
-  call deallocntoc(ntoc,amesh%Nnodes)
-  write(0,*) 'maximun sweep number : ',mxswp
-end subroutine timeonevsall2d
-!###############################################################################
 subroutine printperc(a,b)
 
   integer :: a,b
@@ -806,18 +701,6 @@ function donedge(amesh,i,j)
   return
 end function donedge
 !###############################################################################
-function tonedge(amesh,i,j,v)
-
-  type(mesh) :: amesh
-  integer :: i,j
-  real :: tonedge,v
-
-  tonedge=sqrt((amesh%px(i)-amesh%px(j))**2+&
-               (amesh%py(i)-amesh%py(j))**2+&
-               (amesh%pz(i)-amesh%pz(j))**2)/v
-  return
-end function tonedge
-!###############################################################################
 subroutine updclosedist(amesh,distarray,k,i,j)
 
    type(mesh) :: amesh
@@ -908,9 +791,6 @@ function dcircle(d12,d13,d23,r1,r2)
   real :: x,y,xc,yc,a
   logical :: line
 
-! TEST
-!  dcircle=dplane(d12,d13,d23,r1,r2)
-!  return
 ! by definition the first lateration computing the V3 coordinates is stable
 ! if the mesh is not ill formed
   x=(d12**2-d23**2+d13**2)/(2*d12)
@@ -943,7 +823,7 @@ function dcircle(d12,d13,d23,r1,r2)
   xc=(d12**2-r2**2+r1**2)/(2*d12)
   yc=sqrt(max(r1**2-xc**2,0.))
   if (verbose) write(*,*) 'dcircle - xc,yc :',xc,yc
-! The gate test: a is the x value of the virtual path at the abscisse axis crossing.
+! The gate test. a is the x value of the virtual path at the abscisse axis crossing.
 ! It must lay between the two vertices, i.e. passing throuth the gate.
   a=abs(xc-x)/(1+(yc/y))
   if (x < xc) then
@@ -961,107 +841,6 @@ function dcircle(d12,d13,d23,r1,r2)
   dcircle=sqrt((x-xc)**2+(y+yc)**2.)  ! remember ... distance to (xc,-yc)
   return
 end function dcircle
-!###############################################################################
-function tcircle(d12,d13,d23,t1,t2,v)
-! computes the coordinates in 2D plane of three vertices V1,V2,V3 making the
-! assumptions that V1 is the origin (0,0), V2 is on the x axis (0,d12). The
-! first part gives the coordinates x,y of V3.
-! Same set of equations are used to estimate the origin of a point distant by
-! r1 and r2 from V1 and V2 respectively (xc,+/-yc). The function returns the
-! distance between (xc,-yc) and V0 (x,y)
-
-  real :: tcircle,d12,d13,d23,t1,t2,v
-
-  real :: x,y,xc,yc,a,r1,r2
-
-  x=(d12**2-d23**2+d13**2)/(2*d12)
-  y=sqrt(max(d13**2-x**2,0.))
-  if (verbose) write(*,*) 'tcircle - x,y :',x,y
-  r1=t1*v
-  r2=t2*v
-  xc=(d12**2-r2**2+r1**2)/(2*d12)
-  yc=sqrt(max(r1**2-xc**2,0.))
-  if (verbose) write(*,*) 'tcircle - xc,yc :',xc,yc
-  a=abs(xc-x)/(1+(yc/y))
-  if (x < xc) then
-     a=x+a
-  else
-     a=x-a
-  endif
-  if (a < 0. .or. a > d12) then
-     tcircle=infinity
-     if (verbose) write(*,*) 'dcircle - a : ',a
-     if (verbose) write(*,*) 'dcircle - a outside range'
-     return
-  endif
-  tcircle=sqrt((x-xc)**2+(y+yc)**2.)/v  ! remember ... distance to (xc,-yc)
-  return
-end function tcircle
-!###############################################################################
-subroutine startdist(amesh,anode,nodelist,distarray)
-
-! Compute the distance at the neightbor nodes list (nodelist) of a given node (anode)
-! This routine is needed by onevsall routine after the initial vicinode call.
-! The routine allvsall uses the updclosedist routine instead
-
-  type(mesh) :: amesh
-  type(listn), pointer :: nodelist
-  integer :: anode
-  real, dimension(amesh%Nnodes) :: distarray
-
-  type(listn), pointer :: pcur
-
-  pcur=>nodelist
-  do while (associated(pcur))
-     distarray(pcur%idnode)=donedge(amesh,anode,pcur%idnode)
-     pcur=>pcur%next
-  enddo
-  return
-end subroutine startdist
-!###############################################################################
-subroutine startime(amesh,anode,celllist,nodelist,time,velocity)
-
-  type(mesh) :: amesh
-  type(listn), pointer :: nodelist,celllist
-  integer :: anode
-  real, dimension(amesh%Nnodes) :: time
-  real, dimension(amesh%Ncells) :: velocity
-
-  type(listn), pointer :: curcell,curnode
-  logical :: begin
-  integer :: i,j
-
-!  write(*,*) 'startime : entering vicicell for node ',anode
-   if (verbose) write(*,*) 'celllist%idnode',celllist%idnode
-   begin=.true.
-   curcell=>celllist
-   do while (associated(curcell))
-      do i=1,3
-         if (amesh%cell(curcell%idnode,i).ne.anode) then
-            if (begin) then
-               allocate(nodelist)
-               nullify(nodelist%previous)
-               nullify(nodelist%next)
-               curnode=>nodelist
-               curnode%idnode=amesh%cell(curcell%idnode,i)
-               begin=.false.
-            else
-               if (.not.isinit(amesh%cell(curcell%idnode,i),nodelist)) then
-                  allocate(curnode%next)
-                  curnode%next%previous=>curnode
-                  nullify(curnode%next%next)
-                  curnode=>curnode%next
-                  curnode%idnode=amesh%cell(curcell%idnode,i)
-               endif
-           endif
-           time(amesh%cell(curcell%idnode,i))=min(tonedge(amesh,anode,&
-                amesh%cell(curcell%idnode,i),velocity(curcell%idnode)),&
-                time(amesh%cell(curcell%idnode,i)))
-        endif
-     enddo
-     curcell=>curcell%next
-  enddo
-end subroutine startime
 !###############################################################################
 subroutine vicinode(amesh,anode,celllist,nodelist)
 
@@ -1174,63 +953,6 @@ subroutine deallocntoc(ntoc,n)
    enddo
 end subroutine deallocntoc
 !###############################################################################
-subroutine dumpQuakeBordervtk(dev,amesh)
-  type(mesh) :: amesh
-  integer :: dev
-  integer,allocatable, dimension(:) :: ordered
-  integer :: i,j
-  integer :: id
-
-!  call order_nodes(amesh,ordered)
-
-  write(dev,'(a26)') '# vtk DataFile Version 2.0'
-  write(dev,'(a8)') 'distance'
-  write(dev,'(a5)') 'ASCII'
-  write(dev,'(a16)') 'DATASET POLYDATA'
-  write(dev,'(a7,i10,a6)') 'POINTS ',amesh%QuakeBorder_NodesNo,' float'
-  do i=1,amesh%QuakeBorder_NodesNo
-     id = amesh%QuakeBorder_Nodes(i)
-     write(dev,*) amesh%px(id),amesh%py(id),amesh%pz(id)
-  enddo
-  write(dev,'(a9,2i10)') 'POLYGONS ',1,amesh%QuakeBorder_NodesNo+1
-!  do i=1,amesh%Ncells
-!     write(dev,'(a2,$)') '3 '
-     write(dev,'(i4,$)') amesh%QuakeBorder_NodesNo
-     write(dev,*) (j-1,j=1,amesh%QuakeBorder_NodesNo)
-!  enddo
-
-  return
-end subroutine dumpQuakeBordervtk
-!###############################################################################
-!###############################################################################
-subroutine dumpQuakevtk(dev,amesh)
-  type(mesh) :: amesh
-  integer :: dev
-  integer :: i,j
-  integer :: id
-
-!  call order_nodes(amesh,ordered)
-
-  write(dev,'(a26)') '# vtk DataFile Version 2.0'
-  write(dev,'(a8)') 'distance'
-  write(dev,'(a5)') 'ASCII'
-  write(dev,'(a16)') 'DATASET POLYDATA'
-  write(dev,'(a7,i10,a6)') 'POINTS ',amesh%QuakeNodesNo,' float'
-  do i=1,amesh%QuakeNodesNo
-     id = amesh%QuakeNodes(i)
-     write(dev,*) amesh%px(id),amesh%py(id),amesh%pz(id)
-  enddo
-  write(dev,'(a9,2i10)') 'POLYGONS ',1,amesh%QuakeNodesNo+1
-!  do i=1,amesh%Ncells
-!     write(dev,'(a2,$)') '3 '
-     write(dev,'(i4,$)') amesh%QuakeNodesNo
-     write(dev,*) (j-1,j=1,amesh%QuakeNodesNo)
-!  enddo
-
-  return
-end subroutine dumpQuakevtk
-!###############################################################################
-!###############################################################################
 subroutine dumpmeshvtk(dev,amesh)
   type(mesh) :: amesh
   integer :: dev
@@ -1271,6 +993,7 @@ subroutine dumpnodeattributevtk(dev,amesh,field,attname,init)
   return
 end subroutine dumpnodeattributevtk
 !###############################################################################
+!###############################################################################
 subroutine dumpcellattributevtk(dev,amesh,field,attname,init)
  type(mesh) :: amesh
   real, dimension(amesh%Ncells) :: field
@@ -1289,114 +1012,61 @@ subroutine dumpcellattributevtk(dev,amesh,field,attname,init)
   return
 end subroutine dumpcellattributevtk
 !###############################################################################
-!subroutine backtrilat(amesh,distarray,apath,thres)
-! aside the definition of the mesh and matrix array distarray, apath has to be
-! initialized (allocated) with the starting point coordinates (apath%x, apath%y, apath%z) and
-! the face id containing it
-! The threshold thres is the condition to exit
-! type(mesh) :: amesh
-! real, dimension(amesh%Nnodes) :: distarray
-! type(path), pointer :: apath
-! real :: thres
-!
-! real :: dtos
-! integer, dimension(2) :: idmin
-! type(path), pointer :: pcur
-!
-!
-!! creating a cell local distance array
-!  ld=distarray(amesh%cell(apath%cellid,:))
-!! finding the minima
-!  call getmin(idmin,ld)
-!! converting indices on local distance array to vertex indices
-!  idmin(1)=amesh%cell(apash%cellid,idmin(1))
-!  idmin(2)=amesh%cell(apash%cellid,idmin(2))
-!  d12=donedge(amesh,idmin(1),idmin(2))
-!  d13=dbpt(amesh%px(idmin(1)),amesh%py(idmin(1)),amesh%pz(idmin(1)),apath%pos%x,apath%pos%y,apath%pos%z)
-!  d23=dbpt(amesh%px(idmin(2)),amesh%py(idmin(2)),amesh%pz(idmin(2)),apath%pos%x,apath%pos%y,apath%pos%z)
-!  r1=distarray(idmin(1))
-!  r2=distarray(idmin(2))
-!  call stepback(d12,d13,d23,r1,r2,a,dtos)
-!  allocate(apath%next)
-!  nullify(apath%next%next)
-!  pcur=>apath%next
-!  pcur%pos%x=(amesh%px(idmin(2))-amesh%px(idmin(1)))/d12*a+amesh%px(idmin(1))
-!  pcur%pos%y=(amesh%py(idmin(2))-amesh%py(idmin(1)))/d12*a+amesh%py(idmin(1))
-!  pcur%pos%x=(amesh%pz(idmin(2))-amesh%pz(idmin(1)))/d12*a+amesh%pz(idmin(1))
-!  pcur%cellid=nextcell(amesh,apath%cellid,idmin)
-!  do while (dtos < thres)
-!     ld=distarray(amesh%cell(pcur%cellid,:))
-!     call getmin(idmin,ld)
-!     idmin(1)=amesh%cell(pcur%cellid,idmin(1))
-!     idmin(2)=amesh%cell(pcur%cellid,idmin(2))
-!     d12=donedge(amesh,idmin(1),idmin(2))
-!     d13=dbpt(amesh%px(idmin(1)),amesh%py(idmin(1)),amesh%pz(idmin(1)),pcur%pos%x,pcur%pos%y,pcur%pos%z)
-!     d23=dbpt(amesh%px(idmin(2)),amesh%py(idmin(2)),amesh%pz(idmin(2)),pcur%pos%x,pcur%pos%y,pcur%pos%z)
-!     r1=distarray(idmin(1))
-!     r2=distarray(idmin(2))
-!     call stepback(d12,d13,d23,r1,r2,a,dtos)
-!     allocate(pcur%next)
-!     nullify(pcur%next%next)
-!     remind=pcur%cellid
-!     pcur=>pcur%next
-!     pcur%pos%x=(amesh%px(idmin(2))-amesh%px(idmin(1)))/d12*a+amesh%px(idmin(1))
-!     pcur%pos%y=(amesh%py(idmin(2))-amesh%py(idmin(1)))/d12*a+amesh%py(idmin(1))
-!     pcur%pos%x=(amesh%pz(idmin(2))-amesh%pz(idmin(1)))/d12*a+amesh%pz(idmin(1))
-!     pcur%cellid=nextcell(amesh,remind,idmin)
+subroutine dumpQuakeBordervtk(dev,amesh)
+  type(mesh) :: amesh
+  integer :: dev
+  integer,allocatable, dimension(:) :: ordered
+  integer :: i,j
+  integer :: id
+
+!  call order_nodes(amesh,ordered)
+
+  write(dev,'(a26)') '# vtk DataFile Version 2.0'
+  write(dev,'(a8)') 'distance'
+  write(dev,'(a5)') 'ASCII'
+  write(dev,'(a16)') 'DATASET POLYDATA'
+  write(dev,'(a7,i10,a6)') 'POINTS ',amesh%QuakeBorder_NodesNo,' float'
+  do i=1,amesh%QuakeBorder_NodesNo
+     id = amesh%QuakeBorder_Nodes(i)
+     write(dev,*) amesh%px(id),amesh%py(id),amesh%pz(id)
+  enddo
+  write(dev,'(a9,2i10)') 'POLYGONS ',1,amesh%QuakeBorder_NodesNo+1
+!  do i=1,amesh%Ncells
+!     write(dev,'(a2,$)') '3 '
+  write(dev,'(i4,$)') amesh%QuakeBorder_NodesNo
+  write(dev,*) (j-1,j=1,amesh%QuakeBorder_NodesNo)
 !  enddo
-!end subroutine backtrilat
-!
-!!###############################################################################
-!subroutine nextcell(amesh,curcell,idmin)
-!   integer :: nextcell,curcell
-!   type(mesh) :: amesh
-!   integer, dimension(2) :: idmin
-!
-!   logical :: jfound
-!   integer :: i,j,k,im
-!
-!  jfound=.false.
-!  i=1
-!  do while (.not.jfound)
-!     im=0
-!     if (i == curcell) cycle
-!     do j=1,3
-!        do k=1,2
-!           if (amesh%cell(i,j) == idmin(k)) im=im+1
-!        enddo
-!     enddo
-!     if (im == 2) then
-!        jfound=.true.
-!     else
-!        i=i+1
-!     endif
-!     if (i > amesh%Ncells) stop ' something wrong happened'
-!  enddo
-!  return
-!end subroutine nextcell
+
+  return
+end subroutine dumpQuakeBordervtk
 !###############################################################################
-!subroutine getmin(idmin,ld)
-!! Warning : in this case, idmin returns the indices containing the two
-!! smallest values in the local distance array ld
-!  integer, dimension(2) :: idmin
-!  real, dimension(3) :: ld
-!
-!  integer :: ml
-!
-!  ml=maxloc(ld)
-!  if (maxloc == 1) then
-!     idmin(1)=2
-!     idmin(2)=3
-!     return
-!  endif
-!  if (maxloc == 2) then
-!     idmin(1)=1
-!     idmin(2)=3
-!     return
-!  endif
-!  idmin(1)=1
-!  idmin(2)=2
-!  return
-!end subroutine getmin
-!!###############################################################################
+!###############################################################################
+subroutine dumpQuakevtk(dev,amesh)
+  type(mesh) :: amesh
+  integer :: dev
+  integer :: i,j
+  integer :: id
+
+!  call order_nodes(amesh,ordered)
+
+  write(dev,'(a26)') '# vtk DataFile Version 2.0'
+  write(dev,'(a8)') 'distance'
+  write(dev,'(a5)') 'ASCII'
+  write(dev,'(a16)') 'DATASET POLYDATA'
+  write(dev,'(a7,i10,a6)') 'POINTS ',amesh%QuakeNodesNo,' float'
+  do i=1,amesh%QuakeNodesNo
+     id = amesh%QuakeNodes(i)
+     write(dev,*) amesh%px(id),amesh%py(id),amesh%pz(id)
+  enddo
+  write(dev,'(a9,2i10)') 'POLYGONS ',1,amesh%QuakeNodesNo+1
+!  do i=1,amesh%Ncells
+!     write(dev,'(a2,$)') '3 '
+     write(dev,'(i4,$)') amesh%QuakeNodesNo
+     write(dev,*) (j-1,j=1,amesh%QuakeNodesNo)
+!  enddo
+
+  return
+end subroutine dumpQuakevtk
+!###############################################################################
+
 end module lateration
