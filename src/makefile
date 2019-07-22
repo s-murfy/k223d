@@ -5,10 +5,14 @@ FC = gfortran     # Fortran 90 compiler
 
 
 OBJ = utils.o lateration.o typedef.o makepdf.o k223d.o
-
-FCFLAGS= -O2 
+#debug ifort:
+#FCFLAGS= -g -check all -assume byterecl -traceback -debug all
+#run ifort
+#FCFLAGS= -O3 -fast
+#debug gfortran:
 #FCFLAGS= -O -g -fbounds-check -fcheck=all -fbacktrace
-
+#run gfortran
+FCFLAGS= -Ofast
 
 #############################
 .SUFFIXES: .f90
