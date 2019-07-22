@@ -12,3 +12,5 @@ Usage: ./k223d.x in same folder as input_file and mesh file. The output is gener
 
 
 The mesh should contain only triangles (i.e unstructured) and be in abaqus format  (i.e. .inp ending ) - two examples are provided Scotia.inp and test.inp. To generate a planar fault with the program provided in the make_mesh folder - the output from this is 'test.inp' and can be used directly in k223d.  
+
+The lastest version includes a condition to better describe surface rupture
