@@ -1,7 +1,0 @@
-# Input file for make_mesh
-# Make_mesh creates planar mesh with unstructured grid
-#  n_x: number of vertices in x dirn 
-#  n_z: number of vertices in z dirn 
-#  dx = distance between vertices in x dirn 
-#  dz = distance between vertices in z dirn 
-&GENERAL  n_x=60, n_z=30, dx=1000., dz = 1000. /
