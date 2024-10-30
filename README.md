@@ -59,13 +59,6 @@ The _k223d_ should now compile without generating errors.
 ### Open notebook 
 After compiling _k223d_ compiled the Jupyter notebooks can be opened. These are found in `notebook` folder. There are two examples provided: in the folder `planar_eg` the file _planar_mesh.ipynb_ is a workflow on how to produce a planar mesh, run _k223d_ and view the results. In the folder `EFSM_eg` the file _read_EFSM20.ipynb_ provides an example on how to read a mesh from the EFSM database, remesh it, run _k223d_, view the results and generate an file that can be viewed in QGIS. 
 
-## Exporting/Importing files from a container
-If you want to copy a file created by _k223d_ or by one of the Notebooks, right click on the file in the notebook and select download and a copy of the file will be put in your Downloads folder. 
-
-To import files inside the container, start the container and use the _docker cp_ command in a terminal to copy the file in. Below is an example of how to copy the file `test.txt` into the `/notebook/EFSM_eg` folder within in container:
-```
-docker cp test.txt ContainerID:app/notebook/EFSM_eg
-```
 
 
 ## References 
@@ -80,6 +73,7 @@ Should you end up using the notebooks in the production of publications, the fol
 - Graphics are produced using [Plotly](https://plotly.com/chart-studio-help/citations/)
 - A number of other python libraries were used in certain notebooks such as [Meshio](https://zenodo.org/records/1288334), [GeoPandas](https://zenodo.org/records/3946761#.Xy24LC2ZPOQ), [PyProj4](https://zenodo.org/records/4571637).
 - More fault meshes from the European fault-source model 2020 can be found here:  https://seismofaults.eu
+
 
 
 ## Version History 
