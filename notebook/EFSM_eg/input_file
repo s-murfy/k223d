@@ -1,0 +1,58 @@
+# Input file for k223d program
+
+# Input of general parameters for composite source model
+#  mu = rigidity
+#  rmin = minimum sub-event radius and is set relative to average element area
+#         rmin should be great than 2 (otherwise the smallest subevents might
+#         not be represented well on the fault). This is also dependent on how
+#         much the cell size on the fault varies.
+#  rmax = maximum sub-event radius and is set relative to width of fault
+#         rmax must be less than 0.5 (otherwise the sub-events could be larger than the fault width)
+#         while 0.5 is an upper limit, often a smaller value maybe be needed as the width is sometimes
+#         an approixmation in case where programme is defining slipping area.
+#  na = number of asperities to be placed on fault
+#  mesh_file = name of file containing unstructured mesh
+&GENERAL  
+mu=3.0e10, 
+rmin=2.,
+rmax=0.35, 
+na=5000, 
+mesh_file="input.vtk"  /
+
+# Earthquake  parameters
+# param_type : define earthquake size, there are two options
+#              magnitude (mw) or stress drop (sd)
+#              if using stress drop then defined_area = .false. as it requires a magnitude
+# param :     this the value given either to the magnitude or stress drop (in Pa)
+# defined_area = true if using Strasser area
+#              = false if using whole mesh
+&SIZE  
+param_type='mw',  
+magnitude=6.5,
+defined_area=.true.  /
+
+# Probabilistic Density Distribution used for choosing location of asperities
+# pdf_type = 'uniform' = uniform pdf
+#            'gauss'   = gaussian pdf
+#            'defined' = user defined pdf (the pdf has to be defined per cell)
+&PDF1 
+pdf_type='uniform' /
+
+# Secondary PDF parameters:
+#         gauss_no = no. of gaussians if pdf_type='gauss'
+#         fname = name of ascii file containing pdf, used only if pdf_type='defined' in line above
+&PDF2 
+gauss_no=2, 
+fname=''   /
+
+# Output information : file type and name
+#   out_type = 'vtk'= output a vtk type file that can be easily read in paraview
+#   out_file = name to be given to the output file
+#   output_level = sets the output level in the case of the vtk file:
+#                      1 : only total slip is outputted
+#                      2 : total, primary and secondary slip are outputted (used to produce figures in manuscript)
+#                      3 : debug level
+&OUTPUT  
+out_type='vtk', 
+out_file="prova2b",
+output_level=1  /
