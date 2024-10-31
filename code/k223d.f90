@@ -109,7 +109,9 @@ call read_mesh_file(amesh,surface,quake%nuc_id)
 ! if (pdf%pdf_type == 'defined') then
 !    call read_pdf_file(pdf,amesh)   
 ! endif
-
+! calculate distance between all points on mesh
+ call allvsall2d(amesh,dist)
+ 
 ! Define rupture area
 if (model%defined_area) then  ! Need to define Earthquake Size on mesh
 ! relationship based on Strasser et al. 2010  (interface events)
@@ -121,7 +123,7 @@ if (model%defined_area) then  ! Need to define Earthquake Size on mesh
   b = 0.351
   model%target_width = 10**(a+b*model%mw)*kilo
 ! calculate distance between all points on mesh
-  call allvsall2d(amesh,dist)
+  ! call allvsall2d(amesh,dist)
   ! call select_fault_zone_global(amesh,quake,dist,model,surf%z0,pdf)
    call select_fault_zone_global(amesh,quake,model,pdf) ! dist is sent through LAT_source 
 else ! Whole mesh is used for earthquake
