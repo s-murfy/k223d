@@ -2,7 +2,7 @@ name: github-repo-stats
 
 env:
   AUTHOR_NAME: "Shane Murphy"
-  AUTHOR_EMAIL: "shane.murphy@ifremer.fr"
+  AUTHOR_EMAIL: "shanemurphy190@hotmail.com"
   # The below values should match https://github.com/<org>/<repo> for your context.
   ORG: "s-murfy"
   REPO: "k223d"
