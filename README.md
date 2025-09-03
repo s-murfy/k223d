@@ -32,9 +32,5 @@ cd k223d
 ```
 
 
-## Version History 
-**Version 2:** Inclusion of rupture time. Standardise input and output of the mesh to a vtk file format. 
-
-**Version 1:** Provide static slip distribution. 
 
 
