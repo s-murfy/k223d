@@ -1,11 +1,13 @@
 
 # k223d: generating stochastic slip distributions on unstructured mesh
 
+<p align="center">
+  <img src=".github/assets/SlipEg.png" alt="Overview of k223d" width="600"/>
+</p>
+
 [![DOI](https://zenodo.org/badge/111907406.svg)](https://doi.org/10.5281/zenodo.7525448)
 
-
-
-## Description of k223d
+## Overview
 
 _k223d_ produces fractal stochastic slip distributions on non-planar faults that are described by triangular mesh. The programme will also provide the rupture time for each location on the fault plane for a given nucleation location and rupture velocity. It is possible to assign surface nodes 
 
@@ -28,39 +30,6 @@ Clone the repository:
 git clone https://github.com/s-murfy/k223d.git
 cd k223d
 ```
-
-### Compile k223d
-_k223d_ is written in fortran and there needs to be compiled with a fortran compiler. In the case of the docker example we will use gfortran whose libraries are preloaded in the docker environement. To compile the k223d, click on the terminal images in the notebook. And type the following commands:
-```
-cd codes 
-make 
-```
-The _k223d_ should now compile without generating errors. 
-
-
-### Running Notebooks
-This involves two steps 
-1. Compile _k223d_
-2. Start a jupyter notebook
-
-### Open notebook 
-After compiling _k223d_ compiled the Jupyter notebooks can be opened. These are found in `notebook` folder. There are two examples provided: in the folder `planar_eg` the file _planar_mesh.ipynb_ is a workflow on how to produce a planar mesh, run _k223d_ and view the results. In the folder `EFSM_eg` the file _read_EFSM20.ipynb_ provides an example on how to read a mesh from the EFSM database, remesh it, run _k223d_, view the results and generate an file that can be viewed in QGIS. 
-
-
-
-## References 
-If using _k223d_ we would appreciate if you could reference the following article:
-- Herrero, A. and Murphy, S., 2018. Self-similar slip distributions on irregular shaped faults. Geophysical Journal International, 213(3), pp.2060-2070.
-
-In the case of surface rupture the following reference is relavent:
-- Murphy, S. and Herrero, A., 2020. Surface rupture in stochastic slip models. Geophysical Journal International, 221(2), pp.1081-1089.
-
-Should you end up using the notebooks in the production of publications, the following references may need to be considered: 
-- _Gmsh_ has been used in the generation of meshes, check their website on how best to reference them(https://gmsh.info). For exampel the authors appreciate referencing the following paper: C. Geuzaine and J.-F. Remacle, Gmsh: a three-dimensional finite element mesh generator with built-in pre- and post-processing facilities. International Journal for Numerical Methods in Engineering, Volume 79, Issue 11, pages 1309-1331, 2009.
-- Graphics are produced using [Plotly](https://plotly.com/chart-studio-help/citations/)
-- A number of other python libraries were used in certain notebooks such as [Meshio](https://zenodo.org/records/1288334), [GeoPandas](https://zenodo.org/records/3946761#.Xy24LC2ZPOQ), [PyProj4](https://zenodo.org/records/4571637).
-- More fault meshes from the European fault-source model 2020 can be found here:  https://seismofaults.eu
-
 
 
 ## Version History 
