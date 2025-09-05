@@ -5,11 +5,12 @@
   <img src=".github/assets/SlipEg.png" alt="Overview of k223d" width="600"/>
 </p>
 
-[![DOI](https://zenodo.org/badge/111907406.svg)](https://doi.org/10.5281/zenodo.7525448)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.16759708.svg)](https://doi.org/10.5281/zenodo.16759708)
+
+
 
 ## Overview
-
-_k223d_ produces fractal stochastic slip distributions on non-planar faults that are described by triangular mesh. The programme will also provide the rupture time for each location on the fault plane for a given nucleation location and rupture velocity. 
+_k223d_ produces fractal stochastic slip distributions on non-planar faults that are described by triangular mesh. The programme will also provide the rupture time for each location on the fault plane for a given nucleation location and rupture velocity.  
 
 
 In summary this progamme will:
