@@ -1,0 +1,30 @@
+cff-version: 1.2.0
+title: 'k223d: Create a stochastic slip distribution with k2 amplitude spectra on an unstructured mesh'
+message: >-
+  If you use this software, please cite it using the
+  metadata from this file.
+type: software
+authors:
+  - family-names: Murphy
+    given-names: Shane
+    orcid: 'https://orcid.org/0000-0003-2795-0463'
+  - family-names: Herrero
+    given-names: Andre
+    orcid: 'https://orcid.org/0000-0001-5633-5852'
+repository-code: 'https://github.com/s-murfy/k223d'
+abstract: >-
+  k223d produces fractal stochastic slip distributions on non-planar 
+  faults that are described by triangular mesh. The programme provides 
+  a stochastic slip distribution for each cell, can generate surface 
+  rupture if requested, and calculates the rupture time across the 
+  fault for a given nucleation location and rupture velocity.
+keywords:
+  - seismology
+  - earthquake simulation
+  - stochastic slip
+  - fractal
+  - unstructured mesh
+license: AGPL-3.0 license
+version: '2.0'
+doi: 10.5281/zenodo.16759708
+date-released: '2023-01-11'
