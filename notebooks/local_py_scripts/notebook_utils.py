@@ -292,7 +292,18 @@ def assign_nucleation_location(nuc_x,nuc_y,x,y,z,cells,cell_vel):
 #
 # subroutine for writing data to a vtk file 
 #
-def write_vtk(file_name,lpoints,lcells,lvel,ltime,surface_nodes=None):
+def write_vtk(file_name,lpoints,lcells,lvel,ltime,slip_pdf, surface_nodes=None):
+    """
+    Write mesh date to a file using the vtk format  
+
+    :param file_name: name of output file 
+    :param lpoints: node array with x,y,z coordinates of nodes
+    :param lcells: integer array linking nodes to cells
+    :param lvel: float array with velocity for each cell
+    :param ltime: float array with initial travel time for each node
+    :param surface_nodes: optional integer array with 1 for surface nodes and 0 for non-surface nodes
+    """
+        
     lnnodes = len(lpoints)
     lncells = len(lcells)
     lx = lpoints[:,0]
@@ -322,6 +333,16 @@ def write_vtk(file_name,lpoints,lcells,lvel,ltime,surface_nodes=None):
         f.write('%f  \n' % (lvel[i]))
     f.write(' \n')
 
+    if slip_pdf is not None:
+       ## cell data : slip pdf on each cell 
+        # f.write('CELL_DATA %d \n' % (lncells))
+        field_name = "slip_pdf"
+        f.write("SCALARS " + field_name + " double 1 \n")
+        f.write("LOOKUP_TABLE default \n")
+        for i in range(lncells): #ncells):
+            f.write('%f  \n' % (slip_pdf[i]))
+        f.write(' \n') 
+
     ## node data : initial travel time (if not known given negative value)
     f.write('POINT_DATA %d \n' % (lnnodes))
     field_name = "time"
@@ -330,6 +351,7 @@ def write_vtk(file_name,lpoints,lcells,lvel,ltime,surface_nodes=None):
     for i in range(0,lnnodes):
         f.write('%f  \n' % ltime[i])
     f.write(' \n')
+
 
     if surface_nodes is not None:
     ## node data : surface nodes 
@@ -407,53 +429,186 @@ def update_inputfile(file_path, updates):
         file.writelines(updated_lines)
         
         
-def write2gis(nodes,cells,slip,time,file_name):
-#   Script to create a GeoJSON file with the fault mesh, slip and 
-#       rupture velocity that can be read by QGIS
-#   nodes:      mesh nodes save in numpy array
-#   cells:      numpy interger array linking nodes to cells
-#   slip:       numpy array with the slip relating to each cell
-#   time:       numpy array with the rupture time on the nodes 
-#   file_name:  file name that will have the GeoJSON format
-
+def write2fmt(nodes, cells, slip, time, file_name, fmt='qgis', rake=0.0):
+    """
+    Write fault mesh data to file in the format specified by fmt.
+    nodes:      mesh nodes numpy array  [lon, lat, depth]
+    cells:      numpy integer array linking nodes to cells
+    slip:       numpy array with slip for each cell
+    time:       numpy array with rupture time for each node
+    file_name:  output file name (extension is set automatically per format)
+    fmt:        output format — 'qgis' (default) or 'hysea'
+    rake:       rake angle [deg], used only for fmt='hysea'
+    """
+    import os
     py_nodes = nodes.tolist()
     py_cells = cells.tolist()
-    py_slip = slip.tolist()
-    py_time = time.tolist()
-    # Create features for each cell with slip value
-    cell_features = []
-    i = 0 
-    for cell in py_cells:
-        node1, node2, node3 = cell
-        # Create the polygon representing the cell
-        polygon = Polygon([[
-            (py_nodes[node1][0], py_nodes[node1][1], py_nodes[node1][2]),
-            (py_nodes[node2][0], py_nodes[node2][1], py_nodes[node2][2]),
-            (py_nodes[node3][0], py_nodes[node3][1], py_nodes[node3][2]),
-            (py_nodes[node1][0], py_nodes[node1][1], py_nodes[node1][2])  # Close the polygon loop
-        ]])
-        
-        # Add a feature for each cell with slip as an attribute
-        feature = Feature(geometry=polygon, properties={"slip": py_slip[i]})
-        i = i+1
-        cell_features.append(feature)
+    py_slip  = slip.tolist()
+    py_time  = time.tolist()
+    base     = os.path.splitext(file_name)[0]
 
-    # Create features for each node with rupture time value
-    node_features = []
-    i = 0 
-    for node in py_nodes:
-        lon, lat, d = node
-        point = Point((lon, lat,d))
-        feature = Feature(geometry=point, properties={"time": py_time[i]})
-        i = i+1
-        node_features.append(feature)
+    if fmt == 'qgis':
+        # GeoJSON with cell polygons (slip) and node points (rupture time)
+        cell_features = []
+        for i, cell in enumerate(py_cells):
+            node1, node2, node3 = cell
+            polygon = Polygon([[
+                (py_nodes[node1][0], py_nodes[node1][1], py_nodes[node1][2]),
+                (py_nodes[node2][0], py_nodes[node2][1], py_nodes[node2][2]),
+                (py_nodes[node3][0], py_nodes[node3][1], py_nodes[node3][2]),
+                (py_nodes[node1][0], py_nodes[node1][1], py_nodes[node1][2])
+            ]])
+            cell_features.append(Feature(geometry=polygon, properties={"slip": py_slip[i]}))
 
-    # Combine cell and node features into one FeatureCollection
-    features = cell_features + node_features
-    feature_collection = FeatureCollection(features)
+        node_features = []
+        for i, node in enumerate(py_nodes):
+            lon, lat, d = node
+            node_features.append(Feature(geometry=Point((lon, lat, d)),
+                                         properties={"time": py_time[i]}))
 
-    # Save to a GeoJSON file
-    with open(file_name, "w") as f:
-        json.dump(feature_collection, f)
+        out_file = base + '.geojson'
+        with open(out_file, "w") as f:
+            json.dump(FeatureCollection(cell_features + node_features), f)
+        print("QGIS GeoJSON file created:", out_file)
 
-    print("GeoJSON file created with name ",file_name)
+    elif fmt == 'hysea':
+        # One row per cell: lon1 lat1 depth1 lon2 lat2 depth2 lon3 lat3 depth3 rake slip
+        # Cells with slip <= 0.001 are skipped (mirrors Fortran behaviour)
+        out_file = base + '_hysea.dat'
+        with open(out_file, 'w') as f:
+            for i, cell in enumerate(py_cells):
+                if py_slip[i] > 0.001:
+                    n1, n2, n3 = cell
+                    f.write(
+                        f"{py_nodes[n1][0]:.6f} {py_nodes[n1][1]:.6f} {abs(py_nodes[n1][2]):.6f} "
+                        f"{py_nodes[n2][0]:.6f} {py_nodes[n2][1]:.6f} {abs(py_nodes[n2][2]):.6f} "
+                        f"{py_nodes[n3][0]:.6f} {py_nodes[n3][1]:.6f} {abs(py_nodes[n3][2]):.6f} "
+                        f"{rake:.6f} {py_slip[i]:.6f}\n"
+                    )
+        print("HySEA file created:", out_file)
+
+    else:
+        raise ValueError(f"Unknown format '{fmt}'. Choose 'qgis' or 'hysea'.")
+
+
+#######################################################################################
+#
+# Function to read a finite-source rupture model .fsp file
+#
+def read_fsp(filepath):
+    """
+    Parse a SRCMOD finite-source rupture model (.fsp) file.
+
+    Searches all header lines for 'Nsg' to determine the number of fault
+    segments (the line position may vary between files).  For each segment
+    the function reads exactly Nsbfs subfault rows and returns the six fields
+    requested: lat, lon, depth (Z column), slip, trup, rise.
+
+    Parameters
+    ----------
+    filepath : str
+        Path to the .fsp file.
+
+    Returns
+    -------
+    segments : list of dict
+        One dict per segment.  Each dict has keys:
+            'lat'   – 1-D numpy array of subfault latitudes  [deg]
+            'lon'   – 1-D numpy array of subfault longitudes [deg]
+            'depth' – 1-D numpy array of subfault depths     [km]
+            'slip'  – 1-D numpy array of slip values         [m]
+            'trup'  – 1-D numpy array of rupture times       [s]
+            'rise'  – 1-D numpy array of rise times          [s]
+        The arrays for segment i are accessed as segments[i]['lat'], etc.
+    """
+    import re
+
+    with open(filepath, 'r') as f:
+        lines = f.readlines()
+
+    # --- 1. Find number of segments anywhere in the file header ---
+    nsg = None
+    for line in lines:
+        m = re.search(r'Nsg\s*=\s*(\d+)', line)
+        if m:
+            nsg = int(m.group(1))
+            break
+    if nsg is None:
+        raise ValueError(f"Could not find 'Nsg' in {filepath}")
+
+    # --- 2. Locate the start line of every segment block ---
+    seg_starts = []
+    for i, line in enumerate(lines):
+        if re.search(r'%\s*SEGMENT\s*#\s*\d+', line):
+            seg_starts.append(i)
+
+    if len(seg_starts) != nsg:
+        raise ValueError(
+            f"Expected {nsg} segments but found {len(seg_starts)} "
+            f"'SEGMENT #' headers in {filepath}"
+        )
+
+    # --- 3. Parse each segment ---
+    segments = []
+    for seg_i, start in enumerate(seg_starts):
+
+        # 3a. Find Nsbfs (number of subfaults) within the next ~15 lines
+        nsbfs = None
+        for j in range(start, min(start + 15, len(lines))):
+            m = re.search(r'Nsbfs\s*=\s*(\d+)', lines[j])
+            if m:
+                nsbfs = int(m.group(1))
+                break
+        if nsbfs is None:
+            raise ValueError(
+                f"Could not find 'Nsbfs' for segment {seg_i + 1} in {filepath}"
+            )
+
+        # 3b. Find the column-header line '% LAT LON X==EW ...' then skip
+        #     any remaining comment lines to reach the first data row.
+        #     Column order: LAT LON X==EW Y==NS Z SLIP RAKE TRUP RISE SF_MOMENT
+        #                    0   1    2     3   4   5    6    7    8      9
+        data_start = None
+        for j in range(start, min(start + 15, len(lines))):
+            if re.search(r'LAT\s+LON\s+X==EW', lines[j]):
+                k = j + 1
+                while k < len(lines) and lines[k].strip().startswith('%'):
+                    k += 1
+                data_start = k
+                break
+        if data_start is None:
+            raise ValueError(
+                f"Could not find column header for segment {seg_i + 1} "
+                f"in {filepath}"
+            )
+
+        # 3c. Read exactly nsbfs data lines
+        raw = []
+        for j in range(data_start, data_start + nsbfs):
+            raw.append([float(v) for v in lines[j].split()])
+        data = np.array(raw)
+
+        segments.append({
+            'lat':   data[:, 0],
+            'lon':   data[:, 1],
+            'depth': data[:, 4],
+            'slip':  data[:, 5],
+            'trup':  data[:, 7],
+            'rise':  data[:, 8],
+        })
+
+    return segments
+
+
+def read_fsp_combined(filepath):
+    """
+    Like read_fsp, but concatenates all segments into single 1-D arrays.
+
+    Returns
+    -------
+    dict with keys: 'lat', 'lon', 'depth', 'slip', 'trup', 'rise'
+    Each value is a 1-D numpy array covering all subfaults across all segments.
+    """
+    segments = read_fsp(filepath)
+    keys = ('lat', 'lon', 'depth', 'slip', 'trup', 'rise')
+    return {k: np.concatenate([seg[k] for seg in segments]) for k in keys}

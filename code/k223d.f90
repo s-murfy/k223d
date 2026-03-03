@@ -95,7 +95,7 @@ call read_input(model, mesh_file,pdf,out_type,out_file,output_level)
 ! read mesh file
 if (output_level > 2)  write(*,*) "read mesh file  ..."
 ! call read_mesh_file(amesh,mesh_file,surf) ! reading nodal points and elements from file
-call read_mesh_file(amesh,surface,quake%nuc_id)   
+call read_mesh_file(amesh,surface,pdf,quake%nuc_id)   
 
 
 ! calc mean depth of each element=> TO DO account for this in read in file or read_mesh_file, where to put 'mz'
@@ -151,7 +151,8 @@ select case(pdf%pdf_type)
 	    if (output_level > 2) write(*,*)'set up pdf'
       call set_pdf(pdf,quake,model%target_area) !set the pdf for the distribution of cracks on fault plane
       if (output_level > 2) write(*,*)'calc fault pdf'
-      call faultpdf(pdf,quake_pdf,dist,quake,amesh)
+      call faultpdf(pdf,quake_pdf,dist,quake,amesh)   ! in future : what is the difference between this and set_pdf ? 
+       if (output_level > 2) write(*,*)'calc quake pdf'
   case('defined')    ! pdf has been defined in an ascii file
 ! need to define quake_pdf here based on global one
        call set_quake_pdf(pdf,quake_pdf,quake,model%defined_area)
@@ -168,7 +169,7 @@ if (output_level > 2)  write(*,*)'run pdftoslip'
 call pdftoslip(model,amesh,quake,surface,pdf%pdf_type,quake_pdf,output_level,dist2)
 
 ! calculate rupture velocity 
-call calc_rupt_front(amesh,quake)
+call calc_rupt_front(amesh,quake)  ! in reality don't need to pass quake, but it could be used in future to define rupture velocity based on slip or something else
 
 !output
 if (output_level > 2) write(*,*)'write out slip distribtion'

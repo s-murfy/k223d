@@ -19,6 +19,18 @@ subroutine set_quake_pdf(pdf,quake_pdf,quake,defined_area)
   allocate(quake_pdf(quake%QuakeElemNo))
   quake_pdf = pdf%g_pdf
 
+  ! make sure pdf is normalized to 1
+  pdfint=0.
+  do i=1,quake%QuakeElemNo
+     pdfint=pdfint+quake_pdf(i)
+  enddo
+  ! ug=0.
+  do i=1,quake%QuakeElemNo
+     quake_pdf(i)=quake_pdf(i)/pdfint
+    !  ug=ug+quake_pdf(i)
+  enddo
+
+
 return
 end subroutine set_quake_pdf
 !#######################################################################################
@@ -54,6 +66,9 @@ select case(pdf%pdf_type)
               pdf%sizeandhigh(i,2)=1.                           ! relative weight
 
           enddo
+  case('defined')
+! pdf is defined in the input mesh file  
+
    case default
         write(0,*) 'ERROR in asigning pdf type'
         write(0,*) pdf%pdf_type
@@ -229,6 +244,7 @@ if (abs(maxval(quake_pdf)-minval(quake_pdf)) <= epsilon(1.)) then
   if (output_level > 2) write(0,*) 'using random location for first subevent '
 else
   idxmax = maxloc(quake_pdf,1)      ! locating the maximum of the pdf
+  ! write(0,*) 'using max of pdf fn for location of first subevent ',idxmax
   if (output_level > 2) write(0,*)  'using max of pdf fn for location of first subevent '
 endif
 !print*,'NOTE:: initial index value.......',idxmax

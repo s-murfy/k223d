@@ -20,7 +20,7 @@ contains
 
 
 !###############################################################################
-subroutine read_mesh_file(amesh,surface,nuc_id)
+subroutine read_mesh_file(amesh,surface,pdf,nuc_id)
   ! subroutine read_mesh_file(amesh,adiff)
   use LAT_time
   use LAT_source 
@@ -28,6 +28,8 @@ subroutine read_mesh_file(amesh,surface,nuc_id)
   integer(pin),allocatable,dimension(:) :: cell_id
   integer(pin),intent(out) :: nuc_id 
   type(mesh) :: amesh
+  type(pdfinputs) :: pdf
+
   ! type(diff) :: adiff
   type(reflect) :: surface
 
@@ -35,14 +37,11 @@ subroutine read_mesh_file(amesh,surface,nuc_id)
   character(30) :: mesh_file
 
   ! read unstructured mesh from file
-  write(*,*) 'enter read_vtk_mesh'
   mesh_file = 'input.vtk'
   ! call read_vtk_mesh_jup(amesh,mesh_file,adiff)
-  call read_vtk_mesh_jup_surf(amesh,mesh_file,surface,nuc_id)
-  write(*,*) 'exit read_vtk_mesh'
+  call read_vtk_mesh_jup_surf(amesh,mesh_file,surface,pdf,nuc_id)
 
 ! calculate inter-connectivity of Elemeents 
-
   call mesh_connectivity(amesh)
 
   return
@@ -437,14 +436,15 @@ return
 end subroutine read_vtk_mesh_jup
 !###############################################################################
 !###############################################################################
-subroutine read_vtk_mesh_jup_surf(amesh,mesh_file,surface,nuc_id)
+subroutine read_vtk_mesh_jup_surf(amesh,mesh_file,surface,pdf,nuc_id)
   use LAT_time
+  use LAT_source
   Use, intrinsic :: iso_fortran_env, Only : iostat_end
 
  type(mesh) :: amesh
  type(reflect) :: surface
 !  type(diff) :: adiff
-
+ type(pdfinputs) :: pdf
  integer(pin), intent(out) :: nuc_id
  character(30),intent(in) :: mesh_file
  integer(pin),allocatable,dimension(:) :: layer_bc,list_surf,nuc_nodes
@@ -561,30 +561,37 @@ if(verbose) then
 endif 
  !------ end of debugging---
 
-  do i = 1,3
-     read(13,*)     ! skip header information on initial time
-  enddo
-  allocate(nuc_nodes(amesh%nnodes))
-! define initial time 
-  node_count = 0
-  do i = 1,amesh%Nnodes
-     read(13,*) itime
-     if (itime > -1.0) then
-       time(i) = itime
-       node_count = node_count+1
-       nuc_nodes(node_count) = i 
-       kappa(i) = 0._pr
-       mode(i) = 0
-     endif
-  enddo
-! find starting cell 
-  nuc_id = -1 
+  ! do i = 1,3
+  !    read(13,*)     ! skip header information on initial time
+  ! enddo
 
+  call find_keyword(13,'time',keyword_present)
+  if (keyword_present) then 
+     allocate(nuc_nodes(amesh%nnodes))
+! define initial time 
+    read(13,'(a)',iostat=ios) line 
+    node_count = 0
+
+    do i = 1,amesh%Nnodes
+      read(13,*) itime
+      if (itime > -1.0) then
+        ! write(*,*) 'nucleation node detected at node id...',i,itime
+        time(i) = itime
+        node_count = node_count+1
+        nuc_nodes(node_count) = i 
+        kappa(i) = 0._pr
+        mode(i) = 0
+      endif
+    enddo
+! find starting cell 
+
+    nuc_id = -1 
+    ! write(*,*) 'number of nucleation nodes found...',node_count
     if (node_count == 1) then ! randomly choose from cells connected with node 
        cell_count = 0
        allocate(n_cells(amesh%Ncells))
        n_cells = 0
-       do i = 1,amesh%Ncells
+      do i = 1,amesh%Ncells
         if ( any(amesh%cell(i,:) == nuc_nodes(1)))   then 
               cell_count = cell_count+1
               n_cells(cell_count) = i
@@ -598,17 +605,10 @@ endif
         call random_number(random)
         nuc_id = ceiling(random*float(cell_count))   !
         deallocate(n_cells)
-
-        ! write(*,*) 'nuc_nodes(1)   ',nuc_nodes(1)
-        ! write(*,*) 'cell_count    ',cell_count
-        ! write(*,*)'n_cells    ',n_cells(1:7)
       endif 
-      ! deallocate(nuc_nodes)
 
     elseif (node_count == 3) then! only one choice 
-     write(*,*) 'number of nucleation nodes found...',node_count
-     write(*,*) nuc_nodes(1:3)
-     do i = 1,amesh%Ncells
+        do i = 1,amesh%Ncells
          vec1 = (/ nuc_nodes(1), nuc_nodes(2), nuc_nodes(3) /)
          vec2 = (/ nuc_nodes(3), nuc_nodes(1), nuc_nodes(2) /)
          vec3 = (/ nuc_nodes(2), nuc_nodes(3), nuc_nodes(1) /)
@@ -625,16 +625,47 @@ endif
           nuc_id = i 
           exit
          endif
-     enddo 
-    else ! randomly decide starting cell (assuming counter == 0 )
-      call random_number(random)
-      nuc_id = ceiling(random*float(amesh%Ncells))   !
-    endif 
-  if(nuc_id == -1) write(*,*) 'ERROR: nucleation cell not defined'
-  write(*,*) 'nucleation cell id:     ',nuc_id
-  deallocate(nuc_nodes)
-  
+        enddo 
+      else ! randomly decide starting cell (assuming counter == 0 )
+        call random_number(random)
+        nuc_id = ceiling(random*float(amesh%Ncells))   !
+      endif 
+      if(nuc_id == -1) write(*,*) 'ERROR: nucleation cell not defined'
+      write(*,*) 'nucleation cell id:     ',nuc_id
+      deallocate(nuc_nodes)
+  ! if no pdf information is found assume uniform pdf
+  else 
+    write(*,*)'time not present in mesh file'
+  endif 
 
+
+!! read pdf information if present 
+  call find_keyword(13,'slip_pdf',keyword_present)
+  if (keyword_present) then 
+     if(pdf%pdf_type /= 'defined') then
+        write(*,*)'WARNING: pdf not set to defined in input file but pdf function found in mesh file which will be used '
+        pdf%pdf_type = 'defined'
+      else
+        write(*,*)'pdf function found in mesh file which will be used '
+     endif 
+ 
+    read(13,'(a)',iostat=ios) line 
+
+    allocate(pdf%g_pdf(amesh%Ncells))
+    pdf%g_pdf = 0._pr
+
+    do i = 1,amesh%Ncells
+      read(13,*) pdf%g_pdf(i) 
+    enddo 
+  elseif (.not.keyword_present) then 
+! if no pdf information is found assume uniform pdf
+    write(*,*)'pdf function not found in mesh file, assuming uniform pdf'
+
+    allocate(pdf%g_pdf(amesh%Ncells))
+    pdf%g_pdf = 1._pr/real(amesh%Ncells,pr)  ! uniform pdf
+  endif 
+
+!! read in surface information if present
   call find_keyword(13,'surface',keyword_present)
   if (keyword_present) then 
     surface%present = .true.  ! turn on surface 
@@ -1124,14 +1155,14 @@ subroutine write_out(amesh,quake,surface,out_type,out_file,pdf,en_var,output_lev
            call dumpmeshvtk_jup(11,amesh)  ! changed to this as it is read by meshio (other doesn't recognise POLYDATA)
 ! save rupture time on the nodes 
            rupt_time = 0._pr
-           if (quake%QuakeNodesNo < amesh%nnodes) then 
+          !  if (quake%QuakeNodesNo < amesh%nnodes) then 
             ! set rupture front to zero if 
                do i= 1,quake%QuakeNodesNo
                   rupt_time(quake%QuakeNodes(i)) = time(quake%QuakeNodes(i))
                enddo
-            else
-              rupt_time = time
-           endif 
+          !   else
+          !     rupt_time = time
+          !  endif 
            call dumpnodeattributevtk(11,amesh,rupt_time,'Rupt_time',.true.)
 
           !  allocate(test(amesh%nnodes))
@@ -1151,7 +1182,8 @@ subroutine write_out(amesh,quake,surface,out_type,out_file,pdf,en_var,output_lev
            write (fnamef, "(a,I5.5)") "slip."//trim(en_var)
 
            call dumpcellattributevtk(11,amesh,velocity,'vel',.false.)
-  
+           call dumpcellattributevtk(11,amesh,pdfout,'pdf',.false.)
+
            if (output_level > 1) then
                slipout=0._pr
                do i = 1,quake%QuakeElemNo
@@ -1166,7 +1198,7 @@ subroutine write_out(amesh,quake,surface,out_type,out_file,pdf,en_var,output_lev
             endif
             if (output_level > 2) then
                call dumpnodeattributevtk(11,amesh,Dist2Border,'Dist2Border',.true.)
-               call dumpcellattributevtk(11,amesh,pdfout,'pdf',.true.)
+              !  call dumpcellattributevtk(11,amesh,pdfout,'pdf',.true.)
             endif
 
             close(11)

@@ -215,11 +215,11 @@ def plot_mesh_quake(tri,nodes,quake_x,quake_y,quake_z):
 #
 #   
 #
-def plot_mesh_node(tri,nodes,node_var,name):
-    X = nodes[:,0]  
-    Y = nodes[:,1]  
-    Z = nodes[:,2]  
-    
+def plot_mesh_node(tri, nodes, node_var, name, contours=False, n_contours=10):
+    X = nodes[:,0]
+    Y = nodes[:,1]
+    Z = nodes[:,2]
+
 # Extract edges from the mesh
     edges = []
     for i in range(tri.shape[0]):
@@ -243,7 +243,8 @@ def plot_mesh_node(tri,nodes,node_var,name):
         y=edge_y,
         z=edge_z,
         mode='lines',
-        line=dict(color='black', width=1)
+        line=dict(color='black', width=1),
+        showlegend=False
     )
 
 # Create a Plotly mesh3d trace for the triangular mesh with color based on velocity
@@ -260,17 +261,180 @@ def plot_mesh_node(tri,nodes,node_var,name):
         showscale=True
     )
 
+    data = [trace_edges, trace_mesh]
+
+# Optionally overlay contour lines of node_var on the mesh surface
+    if contours:
+        import matplotlib.pyplot as plt
+        import matplotlib.tri as mtri
+        from scipy.interpolate import LinearNDInterpolator
+
+        # Compute contour paths on the 2D projection (X-Y plane)
+        triang = mtri.Triangulation(X, Y, tri)
+        fig_mpl, ax = plt.subplots()
+        cs = ax.tricontour(triang, node_var, levels=n_contours)
+        plt.close(fig_mpl)
+
+        # Interpolator to recover Z for any (X, Y) point along a contour path
+        z_interp = LinearNDInterpolator(np.column_stack([X, Y]), Z)
+
+        for i, level_paths in enumerate(cs.get_paths()):
+            verts = level_paths.vertices
+            cx, cy = verts[:, 0], verts[:, 1]
+            cz = z_interp(cx, cy)
+            data.append(go.Scatter3d(
+                x=cx, y=cy, z=cz,
+                mode='lines',
+                line=dict(color='white', width=3),
+                showlegend=False,
+                hoverinfo='skip'
+            ))
+
 # Create Plotly figure
-    fig = go.Figure(data=[trace_edges, trace_mesh])
+    fig = go.Figure(data=data)
 
 # Update layout and show plot
     fig.update_layout(scene=dict(aspectmode='data'))
     fig.show()
 
-
-
+########################################################
 #
+#   
 #
+def plot_mesh_cell_node(tri, nodes, cell_var,node_var, name, contours=True,n_contours=10):
+    X = nodes[:,0]
+    Y = nodes[:,1]
+    Z = nodes[:,2]
+
+# Extract edges from the mesh
+    edges = []
+    for i in range(tri.shape[0]):
+        edges.extend([(tri[i, 0], tri[i, 1]), (tri[i, 1], tri[i, 2]), (tri[i, 2], tri[i, 0])])
+
+# Remove duplicate edges
+    unique_edges = list(set(edges))
+
+# Extract coordinates for edges
+    edge_x = []
+    edge_y = []
+    edge_z = []
+    for edge in unique_edges:
+        edge_x.extend([X[edge[0]], X[edge[1]], None])
+        edge_y.extend([Y[edge[0]], Y[edge[1]], None])
+        edge_z.extend([Z[edge[0]], Z[edge[1]], None])
+
+# Create a Plotly scatter3d trace for wireframe
+    trace_edges = go.Scatter3d(
+        x=edge_x,
+        y=edge_y,
+        z=edge_z,
+        mode='lines',
+        line=dict(color='black', width=1),
+        showlegend=False
+    )
+
+    var = np.zeros(len(X))   # colour is placed on vertices which is interpolated 
+    for i in range(len(tri)):
+        c_id = tri[i]
+        var[c_id] = cell_var[i]
+
+# Create a Plotly mesh3d trace for the triangular mesh with color based on velocity
+    trace_mesh = go.Mesh3d(
+        x=X,
+        y=Y,
+        z=Z,
+        i=tri[:, 0],
+        j=tri[:, 1],
+        k=tri[:, 2],
+        intensity=var,
+        colorscale='Inferno',
+        colorbar=dict(title=name),
+        showscale=True
+    )
+
+    data = [trace_edges, trace_mesh]
+
+# Optionally overlay contour lines of node_var on the mesh surface
+    if contours:
+        import matplotlib.pyplot as plt
+        import matplotlib.tri as mtri
+        from scipy.interpolate import LinearNDInterpolator
+
+        # Compute contour paths on the 2D projection (X-Y plane)
+        triang = mtri.Triangulation(X, Y, tri)
+        fig_mpl, ax = plt.subplots()
+        cs = ax.tricontour(triang, node_var, levels=n_contours)
+        plt.close(fig_mpl)
+
+        # Interpolator to recover Z for any (X, Y) point along a contour path
+        z_interp = LinearNDInterpolator(np.column_stack([X, Y]), Z)
+
+        for i, level_paths in enumerate(cs.get_paths()):
+            verts = level_paths.vertices
+            cx, cy = verts[:, 0], verts[:, 1]
+            cz = z_interp(cx, cy)
+            data.append(go.Scatter3d(
+                x=cx, y=cy, z=cz,
+                mode='lines',
+                line=dict(color='white', width=3),
+                showlegend=False,
+                hoverinfo='skip'
+            ))
+
+# Create Plotly figure
+    fig = go.Figure(data=data)
+
+# Update layout and show plot
+    fig.update_layout(scene=dict(aspectmode='data'))
+    fig.show()
+
+########################################################
+def geo_mesh(tri, nodes, cell_var, name, marker_size=12,opacity_value=0.8):
+    """
+    Plot mesh on a geographic map using Plotly.
+    tri:            numpy integer array of triangle connectivity (shape: n_cells x 3)
+    nodes:          mesh nodes numpy array  [lon, lat, depth]
+    cell_var:       numpy array with variable to plot for each cell (e.g., slip)
+    slip:           numpy array with slip for each cell
+    name:           name to display in colorbar
+    marker_size:    marker size (default is 12)
+    opacity_value:  opacity value (default is 0.8)
+    """
+    X = nodes[:, 0]   # lon
+    Y = nodes[:, 1]   # lat
+
+    # Cell centroids
+    centroid_lon = (X[tri[:, 0]] + X[tri[:, 1]] + X[tri[:, 2]]) / 3
+    centroid_lat = (Y[tri[:, 0]] + Y[tri[:, 1]] + Y[tri[:, 2]]) / 3
+
+    trace_cells = go.Scattermap(
+        lat=centroid_lat,
+        lon=centroid_lon,
+        mode='markers',
+        marker=dict(
+            size=marker_size,
+            color=cell_var,
+            colorscale='Inferno',
+            colorbar=dict(title=name),
+            showscale=True,
+            opacity=opacity_value
+        ),
+        showlegend=False
+    )
+
+    fig = go.Figure(data=[trace_cells])
+
+    fig.update_layout(
+        map=dict(
+            style="open-street-map",
+            center=dict(lat=float(np.mean(centroid_lat)), lon=float(np.mean(centroid_lon))),
+            zoom=5
+        ),
+        title="Kamchatka k223d Slip",
+        margin={"r":0,"t":40,"l":0,"b":0}
+    )
+
+    fig.show()
 ########################################################
 #
 #    
