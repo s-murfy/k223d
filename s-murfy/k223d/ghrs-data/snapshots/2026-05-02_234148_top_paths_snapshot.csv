@@ -1,0 +1,11 @@
+url_path,views_total,views_unique
+/s-murfy/k223d,3,2
+/s-murfy/k223d/tree/master,3,1
+/s-murfy/k223d/tree/master/code,3,1
+/s-murfy/k223d/blob/master/code/LAT_source.f90,2,1
+/s-murfy/k223d/tree/master/notebooks,2,1
+/s-murfy/k223d/tree/master/notebooks/local_py_scripts,2,1
+/s-murfy/k223d/blob/master/code/k223d.f90,1,1
+/s-murfy/k223d/blob/master/code/lateration.f90,1,1
+/s-murfy/k223d/blob/master/notebooks/local_py_scripts/fault_scaling.py,1,1
+/s-murfy/k223d/blob/master/notebooks/local_py_scripts/plotting.py,1,1
