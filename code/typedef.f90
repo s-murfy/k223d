@@ -18,7 +18,7 @@ real(pr) ::  mu, rmin, rmax, magnitude !param
 integer(pin) :: na
 integer(pin)  :: io_n
 character(30),intent(out) :: mesh_file,out_file
-character(30) :: fname
+! character(30) :: fname
 character(3),intent(out) :: out_type
 character(7) :: pdf_type
 character(3) :: param_type
@@ -29,7 +29,7 @@ logical :: defined_area
 NAMELIST / GENERAL  / mu, rmin, rmax, na, mesh_file
 NAMELIST / SIZE / param_type,magnitude, defined_area
 NAMELIST / PDF1   / pdf_type
-NAMELIST / PDF2  / gauss_no, fname
+NAMELIST / PDF2  / gauss_no
 NAMELIST / OUTPUT  / out_type, out_file, output_level
 
 io_n = 11
@@ -45,8 +45,7 @@ read(io_n,nml=SIZE,END=200)
 rewind(io_n)
 read(io_n,nml=PDF1,END=200)
 
-rewind(io_n)
-read(io_n,nml=PDF2,END=200)
+
 
 rewind(io_n)
 read(io_n,nml=OUTPUT,END=200)
@@ -64,8 +63,13 @@ pdf%pdf_type = pdf_type
 select case(pdf%pdf_type)
   case('gauss')
     pdf%ng = gauss_no
-  case('defined')    ! pdf has been defined in an ascii file
-    pdf%pdf_fname = fname
+
+    rewind(io_n)
+    read(io_n,nml=PDF2,END=200)
+
+
+  case('defined')    ! pdf has been defined in the vtk mesh file, this will be read in later.
+    write(*,*) 'Using user defined PDF, this should be included in the input mesh file'
 ! check that user is using the full the mesh in this case
     if(model%defined_area) then
       write(*,*) 'ERROR: if using a predefined PDF the whole mesh is used'

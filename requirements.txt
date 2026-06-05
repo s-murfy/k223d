@@ -1,0 +1,22 @@
+# Core scientific
+numpy
+pandas
+scipy
+matplotlib
+
+# Mesh handling
+gmsh
+meshio
+
+# Geospatial
+geopandas
+pyproj
+geojson
+rockhound
+scikit-learn
+
+# Visualisation
+plotly
+
+# Notebooks
+jupyterlab

@@ -14,13 +14,9 @@ interface dumpnodeattributevtk
     module procedure rdumpnodeattributevtk
 end interface 
 
-
-
 contains
-
-
 !###############################################################################
-subroutine read_mesh_file(amesh,surface,nuc_id)
+subroutine read_mesh_file(amesh,surface,pdf,nuc_id)
   ! subroutine read_mesh_file(amesh,adiff)
   use LAT_time
   use LAT_source 
@@ -28,6 +24,8 @@ subroutine read_mesh_file(amesh,surface,nuc_id)
   integer(pin),allocatable,dimension(:) :: cell_id
   integer(pin),intent(out) :: nuc_id 
   type(mesh) :: amesh
+  type(pdfinputs) :: pdf
+
   ! type(diff) :: adiff
   type(reflect) :: surface
 
@@ -35,124 +33,16 @@ subroutine read_mesh_file(amesh,surface,nuc_id)
   character(30) :: mesh_file
 
   ! read unstructured mesh from file
-  write(*,*) 'enter read_vtk_mesh'
   mesh_file = 'input.vtk'
   ! call read_vtk_mesh_jup(amesh,mesh_file,adiff)
-  call read_vtk_mesh_jup_surf(amesh,mesh_file,surface,nuc_id)
-  write(*,*) 'exit read_vtk_mesh'
+  call read_vtk_mesh_jup_surf(amesh,mesh_file,surface,pdf,nuc_id)
 
 ! calculate inter-connectivity of Elemeents 
-
-  call mesh_connectivity(amesh)
+  ! call mesh_connectivity(amesh)
 
   return
 end subroutine read_mesh_file
-!==============================================================================
-subroutine mesh_connectivity(amesh)
-  !  Create a matrix that defines neighbouring cells
-  !  Dimension :  (No of cells , 3)
-  !  Row relates to cells
-  !  Columns give the cell numbers of the 3 cells with adjoining faces to current cell
-  !  If a cell has less than 3 neighbours the index of the current cell is placed in the column
-  type(mesh),intent (inout) :: amesh
-  integer(pin), dimension(3) :: node_id,neighbour_element
-  integer(pin),allocatable,dimension(:) :: common_node
-  integer(pin) :: i,j,k,Edge_no,noedges
-  integer(pin), dimension(2) :: test_face
-  integer(pin), allocatable, dimension(:,:) ::   Face_array,dummy_Edge
-  logical :: new_face
 
-  integer(pin),dimension(3,2) :: cell_side
-  integer(pin),dimension(2) :: face
-  integer :: Faces,NFaces, id
-  integer(pin), allocatable, dimension(:,:) ::  FtoNode,FtoNodeT,FtoF
-  integer(pin), allocatable, dimension(:,:,:) ::   FVsNodes
-  integer(pin), dimension(3,2):: Edge
-  integer(pin) :: cell1,cell2
-  integer(pin), dimension(2) :: vertices
-
-  Faces = 3
-
-  write(*,*) 'starting allocation'
-  !call flush()
-
-  allocate(amesh%EToE(amesh%Ncells,Faces))
-  !allocate(FVsNodes(amesh%Nnodes,amesh%Nnodes,2))  ! interger
-  allocate(amesh%FVsNodes(amesh%Nnodes,amesh%Nnodes,2))  ! interger
-
-
-  Edge(1,:) = (/ 1, 2/)
-  Edge(2,:) = (/ 2, 3/)
-  Edge(3,:) = (/ 3, 1/)
-
-
-  write(*,*) 'create FVsNodes'
-!  call flush()
-!  FVsNodes = 0
-  amesh%FVsNodes = 0
-
-
-  do i = 1, amesh%Ncells
-    do j = 1,Faces
-       vertices = amesh%cell(i,Edge(j,:))    ! (Ncells, 3)
-       do k = 1,2
-          if (amesh%FVsNodes(vertices(3-k),vertices(k),1) == 0) then
-            amesh%FVsNodes(vertices(3-k),vertices(k),1) = i
-          elseif (amesh%FVsNodes(vertices(3-k),vertices(k),2) == 0) then
-            amesh%FVsNodes(vertices(3-k),vertices(k),2) = i
-          endif
-       enddo
-    enddo
-  enddo
-
-  do i =1,amesh%Ncells
-      amesh%EToE(i,:) = i    ! null element for this matrix is identity
-  enddo
-  write(*,*) 'start EToE'
-!   do j = 1,amesh%nnodes-1
-!     do k = j+1,amesh%nnodes
-!            cell1 = amesh%FVsNodes(j,k,1)
-!            cell2 = amesh%FVsNodes(j,k,2)
-!            if ((cell1 /= 0).and.(cell2 /= 0 ))then
-!              do i = 1,3
-!                if (amesh%EToE(cell1,i) == cell1) then
-!                    amesh%EToE(cell1,i) = cell2
-!                   !  exit
-!                endif
-!                if (amesh%EToE(cell2,i) == cell2) then
-!                    amesh%EToE(cell2,i) = cell1
-!                   !  exit
-!                endif
-!              enddo
-!            endif
-!      enddo
-!  enddo
-
-
-
-  do j = 1,amesh%nnodes-1
-     do k = j+1,amesh%nnodes
-            cell1 = amesh%FVsNodes(j,k,1)
-            cell2 = amesh%FVsNodes(j,k,2)
-            if ((cell1 /= 0).and.(cell2 /= 0 ))then
-              do i = 1,3
-                if (amesh%EToE(cell1,i) == cell1) then
-                    amesh%EToE(cell1,i) = cell2
-                    exit
-                endif
-              enddo
-              do i = 1,3
-                if (amesh%EToE(cell2,i) == cell2) then
-                    amesh%EToE(cell2,i) = cell1
-                    exit
-                endif
-              enddo
-            endif
-      enddo
-  enddo
-
-  return
-end subroutine mesh_connectivity
 !###############################################################################
 subroutine read_vtk_mesh(amesh,mesh_file)
 
@@ -337,8 +227,8 @@ subroutine read_vtk_mesh_jup(amesh,mesh_file,surf)
    time = infinity
 
 
-! set up for debugging solvers 
-  if (verbose) then 
+! set up for debugging solvers
+  if (verbose /= 0) then
     allocate(sface(amesh%Nnodes))
     allocate(shead(amesh%Nnodes))
     allocate(splane(amesh%Nnodes))
@@ -418,33 +308,22 @@ subroutine read_vtk_mesh_jup(amesh,mesh_file,surf)
            enddo
     endif
    endif
-   !
-   ! adiff%fast = .true.  ! turn off diffraction
-   ! if (.not.adiff%fast) then
-   !   write(*,*)'number of diffraction nodes.......',ibc
-   !   adiff%Nnodes = ibc
-   !   allocate(adiff%nodes(adiff%Nnodes))
-   !   adiff%nodes = bc_nodes(1:ibc)
-   ! else
-   !   adiff%Nnodes = 1
-   !   allocate(adiff%nodes(adiff%Nnodes))
-   !   adiff%nodes = 1
-   ! endif
-
+   
   close(13)
 
 return
 end subroutine read_vtk_mesh_jup
 !###############################################################################
 !###############################################################################
-subroutine read_vtk_mesh_jup_surf(amesh,mesh_file,surface,nuc_id)
+subroutine read_vtk_mesh_jup_surf(amesh,mesh_file,surface,pdf,nuc_id)
   use LAT_time
+  use LAT_source
   Use, intrinsic :: iso_fortran_env, Only : iostat_end
 
  type(mesh) :: amesh
  type(reflect) :: surface
 !  type(diff) :: adiff
-
+ type(pdfinputs) :: pdf
  integer(pin), intent(out) :: nuc_id
  character(30),intent(in) :: mesh_file
  integer(pin),allocatable,dimension(:) :: layer_bc,list_surf,nuc_nodes
@@ -544,8 +423,8 @@ subroutine read_vtk_mesh_jup_surf(amesh,mesh_file,surface,nuc_id)
  !  mode = -1 
   time = infinity
 
-! set up for debugging solvers 
-if(verbose) then 
+! set up for debugging solvers
+if (verbose /= 0) then
   allocate(sface(amesh%Nnodes))
   allocate(shead(amesh%Nnodes))
   allocate(splane(amesh%Nnodes))
@@ -561,30 +440,37 @@ if(verbose) then
 endif 
  !------ end of debugging---
 
-  do i = 1,3
-     read(13,*)     ! skip header information on initial time
-  enddo
-  allocate(nuc_nodes(amesh%nnodes))
-! define initial time 
-  node_count = 0
-  do i = 1,amesh%Nnodes
-     read(13,*) itime
-     if (itime > -1.0) then
-       time(i) = itime
-       node_count = node_count+1
-       nuc_nodes(node_count) = i 
-       kappa(i) = 0._pr
-       mode(i) = 0
-     endif
-  enddo
-! find starting cell 
-  nuc_id = -1 
+  ! do i = 1,3
+  !    read(13,*)     ! skip header information on initial time
+  ! enddo
 
+  call find_keyword(13,'time',keyword_present)
+  if (keyword_present) then 
+     allocate(nuc_nodes(amesh%nnodes))
+! define initial time 
+    read(13,'(a)',iostat=ios) line 
+    node_count = 0
+
+    do i = 1,amesh%Nnodes
+      read(13,*) itime
+      if (itime > -1.0) then
+        ! write(*,*) 'nucleation node detected at node id...',i,itime
+        time(i) = itime
+        node_count = node_count+1
+        nuc_nodes(node_count) = i 
+        kappa(i) = 0._pr
+        mode(i) = 0
+      endif
+    enddo
+! find starting cell 
+
+    nuc_id = -1 
+    ! write(*,*) 'number of nucleation nodes found...',node_count
     if (node_count == 1) then ! randomly choose from cells connected with node 
        cell_count = 0
        allocate(n_cells(amesh%Ncells))
        n_cells = 0
-       do i = 1,amesh%Ncells
+      do i = 1,amesh%Ncells
         if ( any(amesh%cell(i,:) == nuc_nodes(1)))   then 
               cell_count = cell_count+1
               n_cells(cell_count) = i
@@ -598,17 +484,10 @@ endif
         call random_number(random)
         nuc_id = ceiling(random*float(cell_count))   !
         deallocate(n_cells)
-
-        ! write(*,*) 'nuc_nodes(1)   ',nuc_nodes(1)
-        ! write(*,*) 'cell_count    ',cell_count
-        ! write(*,*)'n_cells    ',n_cells(1:7)
       endif 
-      ! deallocate(nuc_nodes)
 
     elseif (node_count == 3) then! only one choice 
-     write(*,*) 'number of nucleation nodes found...',node_count
-     write(*,*) nuc_nodes(1:3)
-     do i = 1,amesh%Ncells
+        do i = 1,amesh%Ncells
          vec1 = (/ nuc_nodes(1), nuc_nodes(2), nuc_nodes(3) /)
          vec2 = (/ nuc_nodes(3), nuc_nodes(1), nuc_nodes(2) /)
          vec3 = (/ nuc_nodes(2), nuc_nodes(3), nuc_nodes(1) /)
@@ -625,16 +504,47 @@ endif
           nuc_id = i 
           exit
          endif
-     enddo 
-    else ! randomly decide starting cell (assuming counter == 0 )
-      call random_number(random)
-      nuc_id = ceiling(random*float(amesh%Ncells))   !
-    endif 
-  if(nuc_id == -1) write(*,*) 'ERROR: nucleation cell not defined'
-  write(*,*) 'nucleation cell id:     ',nuc_id
-  deallocate(nuc_nodes)
-  
+        enddo 
+      else ! randomly decide starting cell (assuming counter == 0 )
+        call random_number(random)
+        nuc_id = ceiling(random*float(amesh%Ncells))   !
+      endif 
+      if(nuc_id == -1) write(*,*) 'ERROR: nucleation cell not defined'
+      write(*,*) 'nucleation cell id:     ',nuc_id
+      deallocate(nuc_nodes)
+  ! if no pdf information is found assume uniform pdf
+  else 
+    write(*,*)'time not present in mesh file'
+  endif 
 
+
+!! read pdf information if present 
+  call find_keyword(13,'slip_pdf',keyword_present)
+  if (keyword_present) then 
+     if(pdf%pdf_type /= 'defined') then
+        write(*,*)'WARNING: pdf not set to defined in input file but pdf function found in mesh file which will be used '
+        pdf%pdf_type = 'defined'
+      else
+        write(*,*)'pdf function found in mesh file which will be used '
+     endif 
+ 
+    read(13,'(a)',iostat=ios) line 
+
+    allocate(pdf%g_pdf(amesh%Ncells))
+    pdf%g_pdf = 0._pr
+
+    do i = 1,amesh%Ncells
+      read(13,*) pdf%g_pdf(i) 
+    enddo 
+  elseif (.not.keyword_present) then 
+! if no pdf information is found assume uniform pdf
+    write(*,*)'pdf function not found in mesh file, assuming uniform pdf'
+
+    allocate(pdf%g_pdf(amesh%Ncells))
+    pdf%g_pdf = 1._pr/real(amesh%Ncells,pr)  ! uniform pdf
+  endif 
+
+!! read in surface information if present
   call find_keyword(13,'surface',keyword_present)
   if (keyword_present) then 
     surface%present = .true.  ! turn on surface 
@@ -1067,37 +977,23 @@ subroutine find_1dR(array,condt,target_value,idx)
   end subroutine erasedupli
   !========================================================
   !###############################################################################
-subroutine write_out(amesh,quake,surface,out_type,out_file,pdf,en_var,output_level,dist2)
+subroutine write_out(amesh,surface,out_type,out_file,pdf,en_var,output_level,dist2)
   ! use typedef
   use LAT_source
   use LAT_time 
   implicit none
   type(mesh) :: amesh        ! complete mesh
-  type(source) :: quake   ! mesh containing earthquake 
   type(reflect) :: surface
-  
   character(3) :: out_type   !type of output file
   character(20) :: en_var
   character(30) :: out_file  ! name of output file
   character(34) :: filename  ! name of output file with extension
   character (len=20) :: fnamef
   integer :: output_level
-  real(pr), dimension(quake%QuakeElemNo) :: pdf
-  real(pr), dimension(:), allocatable :: slipout,pdfout,test,rupt_time
+  real(pr), dimension(amesh%Ncells) :: pdf
   real(pr), dimension(:), allocatable :: dist2
   integer :: i,j
   
-  ! assigning a slip value to every element in whole mesh
-  allocate(slipout(amesh%Ncells))
-  allocate(pdfout(amesh%Ncells))
-  allocate(rupt_time(amesh%nnodes))
-
-  slipout = 0.
-  pdfout = 0.
-  do i = 1,quake%QuakeElemNo
-    slipout(quake%QuakeElem(i)) = slip(i)
-    pdfout(quake%QuakeElem(i)) = pdf(i)
-  enddo
   
   if (en_var == ''.or.en_var=='1') then !   write(*,*) "No pbs_array
      select case(out_type)
@@ -1106,10 +1002,10 @@ subroutine write_out(amesh,quake,surface,out_type,out_file,pdf,en_var,output_lev
       open(10,file=trim(adjustl(filename)))
   
       do i=1,amesh%Ncells
-        if (slipout(i) < 10) then  ! if slip is between 0-9
-          write(10,'(a4,f9.7)') '> -Z',slipout(i)
+        if (slip(i) < 10) then  ! if slip is between 0-9
+          write(10,'(a4,f9.7)') '> -Z',slip(i)
          else      ! if slip is between 10 - 99
-           write(10,'(a4,f10.7)') '> -Z',slipout(i)
+           write(10,'(a4,f10.7)') '> -Z',slip(i)
          endif
          do j=1,3
             write(10,*) amesh%px(amesh%cell(i,j)),amesh%py(amesh%cell(i,j)),amesh%pz(amesh%cell(i,j))
@@ -1123,50 +1019,22 @@ subroutine write_out(amesh,quake,surface,out_type,out_file,pdf,en_var,output_lev
           !  call dumpmeshvtk(11,amesh) 
            call dumpmeshvtk_jup(11,amesh)  ! changed to this as it is read by meshio (other doesn't recognise POLYDATA)
 ! save rupture time on the nodes 
-           rupt_time = 0._pr
-           if (quake%QuakeNodesNo < amesh%nnodes) then 
-            ! set rupture front to zero if 
-               do i= 1,quake%QuakeNodesNo
-                  rupt_time(quake%QuakeNodes(i)) = time(quake%QuakeNodes(i))
-               enddo
-            else
-              rupt_time = time
-           endif 
-           call dumpnodeattributevtk(11,amesh,rupt_time,'Rupt_time',.true.)
-
-          !  allocate(test(amesh%nnodes))
-          !  test = 0._pr 
-          !  do i = 1,surface%nnodes
-          !   test(surface%nodes(i)) = 1._pr
-          !  enddo
-          !  call dumpnodeattributevtk(11,amesh,test,'surface_nodes',.true.)
-          !  deallocate(test)
-          !  if (allocated(dist2)) then 
-          !   call dumpnodeattributevtk(11,amesh,dist2,'surface_dist',.false.)
-          !  endif 
-
+           call dumpnodeattributevtk(11,amesh,time,'Rupt_time',.true.)
 
 ! save slip on cells 
-           call dumpcellattributevtk(11,amesh,slipout,'slip',.true.)
-           write (fnamef, "(a,I5.5)") "slip."//trim(en_var)
+           call dumpcellattributevtk(11,amesh,slip,'slip',.true.)
 
+           write (fnamef, "(a,I5.5)") "slip."//trim(en_var)
            call dumpcellattributevtk(11,amesh,velocity,'vel',.false.)
-  
+           call dumpcellattributevtk(11,amesh,pdf,'pdf',.false.)
+
            if (output_level > 1) then
-               slipout=0._pr
-               do i = 1,quake%QuakeElemNo
-                    slipout(quake%QuakeElem(i))= slip_prim(i)
-               enddo
-               call dumpcellattributevtk(11,amesh,slipout,'slip_prim',.false.)
-               slipout=0._pr
-               do i=1,quake%QuakeElemNo
-                 slipout(quake%QuakeElem(i))= slip_sec(i)
-               enddo
-               call dumpcellattributevtk(11,amesh,slipout,'slip_sec',.false.)
+               call dumpcellattributevtk(11,amesh,slip_prim,'slip_prim',.false.)
+               call dumpcellattributevtk(11,amesh,slip_sec,'slip_sec',.false.)
             endif
             if (output_level > 2) then
                call dumpnodeattributevtk(11,amesh,Dist2Border,'Dist2Border',.true.)
-               call dumpcellattributevtk(11,amesh,pdfout,'pdf',.true.)
+              !  call dumpcellattributevtk(11,amesh,pdfout,'pdf',.true.)
             endif
 
             close(11)
@@ -1179,29 +1047,21 @@ subroutine write_out(amesh,quake,surface,out_type,out_file,pdf,en_var,output_lev
     else  !  write(*,*) "INDEX NUMBER  ",en_var
       write (fnamef, "(a,I5.5)") "slip."//trim(en_var)
       open (10,file=fnamef, form="formatted",status="unknown")
-      do i = 1,quake%QuakeElemNo
-          write(10,*) slipout(i)
+      do i = 1,amesh%Ncells
+          write(10,*) slip(i)
       enddo
       close(10)
   
       if (output_level > 1) then
-           slipout=0.
-           do i=1,quake%QuakeElemNo
-              slipout(quake%QuakeElem(i))= slip_prim(i)
-           enddo
            write (fnamef, "(a,I5.5)") "slip_prim."//trim(en_var)
            open (10,file=fnamef, form="formatted",status="unknown")
            do i = 1,amesh%Ncells
-              write(10,*) slipout(i)
+              write(10,*) slip_prim(i)
            enddo
            close(10)
-           slipout=0.
-           do i=1,quake%QuakeElemNo
-                 slipout(quake%QuakeElem(i))= slip_sec(i)
-           enddo
            open (10,file=fnamef, form="formatted",status="unknown")
            do i = 1,amesh%Ncells
-              write(10,*) slipout(i)
+              write(10,*) slip_sec(i)
            enddo
            close(10)
       endif
@@ -1216,14 +1076,6 @@ subroutine write_out(amesh,quake,surface,out_type,out_file,pdf,en_var,output_lev
   
       endif
   endif
-  ! !--------- ouput boundary nodes of slipping region
-  !            open(12,file='border.vtk',form = 'formatted')
-  !            call dumpQuakeBordervtk(12,amesh)
-  !            close(12)
-  !          !--------- output all the nodes that make up slipping region
-  !            open(12,file='quakenodes.vtk',form = 'formatted')
-  !            call dumpQuakevtk(12,amesh)
-  !            close(12)
   
   return
   end subroutine write_out

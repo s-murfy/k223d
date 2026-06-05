@@ -5,7 +5,7 @@ module LAT_time
 
   type diff
     logical :: fast
-    integer(pin) :: Nnodes
+    integer(pin) :: NdiffNodes
     integer(pin),allocatable,dimension(:) :: nodes
   end type diff
 
@@ -21,11 +21,10 @@ module LAT_time
     integer(pin),allocatable,dimension(:) :: nodes
   end type reflect
 
-  real(pr), allocatable, dimension(:) :: time
   real(pr), allocatable, dimension(:) :: kappa
   integer(pin), allocatable, dimension(:) :: mode
 
-  real(pr), allocatable, dimension(:) :: velocity
+!  real(pr), allocatable, dimension(:) :: velocity
 
 ! set up for debugging solvers 
   real(pr), allocatable, dimension(:) :: sface

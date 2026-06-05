@@ -1,84 +1,131 @@
-## Description of k223d
+# k223d: stochastic slip distributions on unstructured meshes
 
-_k223d_ produces fractal stochastic slip distributions on non-planar faults that are described by triangular mesh. The programme will also provide the rupture time for each location on the fault plane for a given nucleation location and rupture velocity. It is possible to assign surface nodes 
+<p align="center">
+  <img src=".github/assets/SlipEg.png" alt="Example slip distribution on a subduction fault mesh" width="600"/>
+</p>
 
-_k223d_ is based on the composite source model technique ([Zeng et al. BSSA, 1994](https://agupubs.onlinelibrary.wiley.com/doi/abs/10.1029/94GL00367)) whereby a set of hierarchical circular patches of slip are randomly placed on the fault plane based on a spatial probablity density function. Each individual patch of slip has a spatial distribution defined as a circular crack ([Ruiz et al., GJI, 2011](https://academic.oup.com/gji/article/186/1/226/697919)). At each point on the fault plane the contribution from the patches of slip at that location are summed together leading to the production of a final slip distribution that is self-similar. A further development has been the inclusion of surface rupture in _k223d_ when surface nodes are specified. In this newest version it is now possible to calculate the travel time of the rupture front across the fault plane using a user defined rupture velocity and a nucleation location.  
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.16759708.svg)](https://doi.org/10.5281/zenodo.16759708)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+![Version](https://img.shields.io/badge/version-3.0-blue)
 
-In summary this progamme will:
-- provide a stochastic slip distribution for each cell. 
-- generate surface rupture if requested
-- calculate the rupture time across the fault for a given nucleation location and rupture velocity. 
+## Overview
 
-This programme is based on the [slipk2](https://github.com/andherit/slipk2) code for the generation of fractal slip while the kernal for calculating the distance across an unstructured mesh is based on [trilateration](https://github.com/andherit/trilateration)
+_k223d_ generates fractal stochastic slip distributions with k⁻² amplitude spectra on non-planar fault surfaces described by unstructured triangular meshes. As of v3, it can be used as a standalone Fortran executable or called directly from Python, C, C++, or Julia via a C shared-library API.
 
-## Inputs
-There are two main input files required to run the programme a _input_file_  and a file containing a triangular mesh in a vtk format. A detailed description of both input files is given below. To aid the user, the jupyter notebook _planar_mesh.ipynb_ in the Notebook folder provides an example of how to generate a mesh using [Gmsh](https://gmsh.info), set up the inputfile and run _k223d_. A description of how to setup a docker containing _k223d_ and the jupyter notebook is provided [below](##Setting-up-Docker-Image).
+_k223d_ will:
 
-#### Setting the rupture size
-There are two option on how to run the code, it can be assumed that the earthquake will occupy the whole mesh or a section of it based on a prescribed magnitude. The other option is that the area of the earthquake is defined by an empirical scalling relationship. At the moment the only option is [Strasser et al.,SRL, 2010](https://pubs.geoscienceworld.org/ssa/srl/article/81/6/941/143755/Scaling-of-the-Source-Dimensions-of-Interface-and) but others will be added with time. When this option is activated the cells around the designated nucleation location are choosen with more adjoining cells added until the rupture area is large than the value specified by the scaling relationship.
+- generate a stochastic slip distribution for each mesh cell
+- optionally account for surface rupture
+- optionally calculate the rupture-front arrival time across the fault for a given nucleation point and rupture velocity
 
+_k223d_ is based on [slipk2](https://github.com/andherit/slipk2) for fractal slip generation; geodesic distances across the mesh are computed using the trilateration algorithm from [trilateration](https://github.com/andherit/trilateration).
 
-#### Surface rupture
-Slip will automatically taper to zero at the edge of the mesh. In the case of edge representing the surface this is not always desirable. If nodes are defined as representing the earth's surface the slip will not be taper but will remain high with no decrease in slip at the surface. To know more about the technique used to achieve it see [Murphy and Herrero, GJI, 2020](https://academic.oup.com/gji/article/213/3/2060/4939268)
+➡️ **Full documentation:** [Wiki](https://github.com/s-murfy/k223d/wiki)
 
-### Input file
-_k223d_ automatically looks for a file named _"input_file"_. Many options can be left as they are in this file. For a full description of all the parameters are provided in the inputfile itself as comments. The more common parameters that the user will probably want to change are:
-- **mesh_file** : complete name of the file containing the input mesh
-- **magnitude** : size of the earthquake the user wishes to generate.
-- **define_area** : this decides whether to use an emperical scaling relationship. Set equal to `true` for _k223d_ to automatically set the area of the fault based on value given for the `magnitude` whereby a Strasser et al. scaling relationship will be used to estimate the rupture area and the final slip distribution will be scaled to magnitude provided. If set to `false` _k223d_ will assume the whole mesh is being used for the slip distribution and the slip scaled to correspond to the magnitude specified.  
-- **out_file** : specify the name of the output vtk file that will be generated by _k223d_. ".vtk" will be automatically added to the name provided
+---
 
+## What's new in v3
 
-### Mesh file
-_k223d_ searches for the mesh file specfied in the inputfile. _k223d_ reads in a [Legacy VTK Format](https://docs.vtk.org/en/latest/design_documents/VTKFileFormats.html), an example of how to construct a file using this format is provided in the Notebook with the corresponding python function provided as [well](notebook/notebook_utils.py#L259).  
+- **C API** — _k223d_ is now available as a shared library (`libk223d.so`), callable from Python, Julia, C, and C++
+- **Simplified command-line interface** — the Fortran namelist input file has been replaced by command-line arguments (`mw=`, `in=`, `out=`, etc.)
+- **Reorganised examples** — the `examples/` directory replaces the old `notebooks/` folder and covers both Fortran and Python workflows
 
-Inside the mesh file, the order of the information in the vtk is as follows:
-1) **Nodes** - an x,y,z list of the nodal coordinates
-2) **Cells** - a 3 integer list connecting nodal indices (based on above list) to each element
-3) **Velocity** - stored on the cells, this must be defined if time is provided and none of the values can be 0, this is an optional parameter.  
-4) **Time** - stored on the nodes, set to -200 where rupture time is to be calculated and with an initial value on one node or a group of nodes where the earthquake initiates. 
-5) **Surface** - list of integers that provides a list of indices related to nodes that are on the surface, this is an optional parameter, if it is not assigned it is assumed that mesh does not reach the surface.  
+> **Upgrading from v2?** The input interface has changed — see the [migration notes](https://github.com/s-murfy/k223d/wiki/Migration) on the wiki.
 
+---
 
-## Output 
-The program outputs a vtk file. This file contains the mesh with the slip distribution and rupture velocity assigned on each cell while the rupture time is saved on the cell nodes. 
+## Repository layout
 
-# Running Notebooks
-This involves two steps 
-1. Compile _k223d_
-2. Start a jupyter notebook
-
-### Compile k223d
-_k223d_ is written in fortran and there needs to be compiled with a fortran compiler. In the case of the docker example we will use gfortran whose libraries are preloaded in the docker environement. To compile the k223d, click on the terminal images in the notebook. And type the following commands:
 ```
-cd codes 
-make 
+k223d/
+├── code/                   # Fortran source files and Makefile
+├── examples/               # Worked examples
+│   ├── fortran/            # Fortran-based workflow (planar mesh example)
+│   ├── python/             # Python API examples (EFSM20, Earthquakes)
+│   └── local_py_scripts/   # Shared Python utilities and k223d Python wrapper
+├── requirements.txt
+├── Dockerfile
+├── CITATION.cff
+└── README.md
 ```
-The _k223d_ should now compile without generating errors. 
 
-### Open notebook 
-After compiling _k223d_ compiled the Jupyter notebooks can be opened. These are found in `notebook` folder. There are two examples provided: in the folder `planar_eg` the file _planar_mesh.ipynb_ is a workflow on how to produce a planar mesh, run _k223d_ and view the results. In the folder `EFSM_eg` the file _read_EFSM20.ipynb_ provides an example on how to read a mesh from the EFSM database, remesh it, run _k223d_, view the results and generate an file that can be viewed in QGIS. 
+---
 
+## Quick start
 
+### Prerequisites
 
-## References 
-If using _k223d_ we would appreciate if you could reference the following article:
-- Herrero, A. and Murphy, S., 2018. Self-similar slip distributions on irregular shaped faults. Geophysical Journal International, 213(3), pp.2060-2070.
+- A Fortran compiler (gfortran recommended)
+- Python ≥ 3.8 with dependencies listed in `requirements.txt`
+- Jupyter (for the example notebooks; included in `requirements.txt`)
 
-In the case of surface rupture the following reference is relavent:
-- Murphy, S. and Herrero, A., 2020. Surface rupture in stochastic slip models. Geophysical Journal International, 221(2), pp.1081-1089.
+### Compile
 
-Should you end up using the notebooks in the production of publications, the following references may need to be considered: 
-- _Gmsh_ has been used in the generation of meshes, check their website on how best to reference them(https://gmsh.info). For exampel the authors appreciate referencing the following paper: C. Geuzaine and J.-F. Remacle, Gmsh: a three-dimensional finite element mesh generator with built-in pre- and post-processing facilities. International Journal for Numerical Methods in Engineering, Volume 79, Issue 11, pages 1309-1331, 2009.
-- Graphics are produced using [Plotly](https://plotly.com/chart-studio-help/citations/)
-- A number of other python libraries were used in certain notebooks such as [Meshio](https://zenodo.org/records/1288334), [GeoPandas](https://zenodo.org/records/3946761#.Xy24LC2ZPOQ), [PyProj4](https://zenodo.org/records/4571637).
-- More fault meshes from the European fault-source model 2020 can be found here:  https://seismofaults.eu
+```bash
+git clone https://github.com/s-murfy/k223d.git
+cd k223d/code
+make          # builds k223d.x
+make install  # also builds libk223d.so and copies it to examples/local_py_scripts
+```
 
+### Run (Fortran executable)
 
+Minimal run — slip distribution only:
 
-## Version History 
-**Version 2:** Inclusion of rupture time. Standardise input and output of the mesh to a vtk file format. 
+```bash
+k223d.x mw=6.9 in=input.vtk out=output.vtk
+```
 
-**Version 1:** Provide static slip distribution. 
+Using stdin/stdout for workflow chaining:
 
+```bash
+k223d.x mw=6.9 < input.vtk > output.vtk
+```
 
+See the [Fortran usage](https://github.com/s-murfy/k223d/wiki/Fortran-Usage) wiki page for all available options.
+
+### Run (Python API)
+
+```python
+import k223d
+
+# Minimal: slip distribution only
+slip, _ = k223d.compute_source(points, cells, mw=7.0)
+
+# With surface rupture and rupture time
+slip, time = k223d.compute_source(
+    points, cells, mw=7.0,
+    surface_nodes=surface_nodes,  # indices of nodes on the free surface
+    velocity=cell_vel,            # rupture velocity per cell [m/s]
+    time=itime                    # initialisation time per node
+)
+```
+
+See the [Python API](https://github.com/s-murfy/k223d/wiki/Python-API) wiki page and the examples in `examples/Python/` for full worked examples.
+
+---
+
+## Docker
+
+A `Dockerfile` is provided if you prefer not to compile locally:
+
+```bash
+docker build -t k223d .
+docker run -it -p 8888:8888 k223d
+```
+
+Then open the URL printed in the terminal (e.g. `http://127.0.0.1:8888/lab?token=...`) in your browser.
+
+---
+
+## Citation
+
+If you use _k223d_, please cite:
+
+> Herrero, A. and Murphy, S., 2018. Self-similar slip distributions on irregular shaped faults. *Geophysical Journal International*, 213(3), pp.2060–2070.
+
+If surface rupture is used, also cite:
+
+> Murphy, S. and Herrero, A., 2020. Surface rupture in stochastic slip models. *Geophysical Journal International*, 221(2), pp.1081–1089.
+
+A full list of references (including mesh generation and visualisation tools used in the examples) is on the [References](https://github.com/s-murfy/k223d/wiki/References) wiki page.

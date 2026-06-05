@@ -13,7 +13,7 @@ real(pr), parameter :: infinity=1.e32_pr
 ! real(pr), parameter :: water_level=10._pr*epsilon(1._pr)
 
 integer(pin), parameter :: nimp=100
-logical :: verbose=.false.
+integer :: verbose=0
 
 contains
 !###############################################################################

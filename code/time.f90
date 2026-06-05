@@ -1,4 +1,10 @@
-module calc_time
+! main module to compute first arrival time on a 2D mesh
+! using a fast marching trilateration method
+! Version January 2026
+! Actions :
+! - Homogeneization of the code with trilat-distance module
+! - remplacement of FVsNodes and EtoE by nton lists
+module time
  use generic
  use LAT_mesh
 !  use LAT_time
@@ -12,70 +18,146 @@ type localxy   ! used by x_entering in distance ! check if it should stay here
 end type localxy
 
 type ops
-   real(pr) :: d13,d23,d12
-   real(pr) :: d12a,d23a,t2a
-   real(pr) :: d12b,d23b,t2b
-   real(pr) :: t1,t2
-   real(pr) :: k1,k2,r1,r2
-   real(pr) :: x3,y3,xc1,yc1,xc2,yc2
-   real(pr) :: a1,a2
-   real(pr) :: v1,v2,v3
-   real(pr) :: va,vb
+   real(pr) :: d13,d23,d12       ! current edge lengths 
+   real(pr) :: d12a,d23a,t2a     ! edge lengths and time for N2a
+   real(pr) :: d12b,d23b,t2b     ! edge lengths and time for N2b
+   real(pr) :: t1,t2             ! current times
+   real(pr) :: k1,k2             ! distances
+   real(pr) :: x3,y3,xc,yc       ! deduced positions in the local reference system
+   real(pr) :: a                 ! impact point
+   real(pr) :: v1,v2,v3          ! velocity, velocity below, velocity "on the left"
 end type ops 
 
 contains
 
+!##########################################################
+subroutine pre_timeonevsall2d_onvertex(amesh,k,time,nton)
+! initialisation of timeonevsall2d in case of a unique source on a vertex k.
+! the time array is initialized to infinity except for the source point k which is set to zero.
+use LAT_mesh
+use lists
+
+  type(mesh) :: amesh
+  real(pr), dimension(:), allocatable :: time
+  integer(pin) :: k
+! the nton array is an hybrid structure of a list of all nodes connected to
+! node nton(i). Each list element contains a pointer to the second node
+! connected to the current node nton(i) and an array of size 2 with the cell indexes
+! on each side of the edge between the two nodes. It carries also the edge length
+! in the cell with the smallest velocity.
+  type(containern), dimension(:), allocatable :: nton
+
+! allocation of the time array and nton array
+  allocate(time(amesh%Nnodes),nton(amesh%Nnodes))
+! computing the node-to-node edge array nton
+  call compnton(amesh,nton)
+! initialisation to infinity
+  time=infinity
+!   initialization of time at k to zero
+  time(k)=0._pr
+  return
+end subroutine pre_timeonevsall2d_onvertex
+
 !########################################################
-subroutine timeonevsall2dV2(amesh,adiff)
+subroutine timeonevsall2d(amesh,velocity,time,nton,adiff)
   use LAT_mesh
   use LAT_time
   use lists
-  use distance
-! given a mesh (amesh) and velocities (velocity) defined on
+! given a mesh (amesh) and velocities (velocity) defined in
 ! the mesh cells, timeonevsall2d computes the first arrival
 ! time on the mesh (time) from all the nodes in time array which
 ! have a finite time (i.e. not infinite)
+! the adiff structure should be also contained inside trilat_distance module
+! taking care also of the fast switch for diffraction
+
+! inout variables
+
+  type(mesh) :: amesh ! the mesh structure
   type(diff) :: adiff
-  type(mesh) :: amesh
-! new variables and cleanup
+  real(pr), dimension(amesh%Nnodes) :: time ! the time array 
+  real(pr), dimension(amesh%Ncells) :: velocity ! velocity defined on cells declared in LAT_time
+  type(containern), dimension(amesh%Nnodes) :: nton ! the node to node array (sparse matrix)
+
+! local variables
+
   integer(pin) :: i
   logical, dimension(amesh%Nnodes) :: inthelist
   logical :: begin
   type(listn), pointer :: ntodo
   type(listn), pointer :: pcur
+  type(liste), pointer :: pcure
+  type(liste), pointer :: last
   type(listn), pointer :: pmin
   integer(pin) :: toggle
   logical :: hasbeenupdated
   integer(pin) :: kn
-  integer(pin) :: kn_start,kn_end,loopdirection
-  integer(pin), dimension(2) :: idcell,idnode
+  integer(pin), dimension(2) :: idcell,idnode,cellonedge12
   type(ops) :: tri_ops
   real(pr) :: tedge
   real(pr) :: kedge
   real(pr), dimension(2) :: tface,tplane,thead
   integer(pin) :: lowercell
   logical :: do_tplane,do_tface,do_thead
-  logical :: it_is_a_conic
   real(pr), dimension(2) :: kface
   real(pr) :: khead
   real(pr) :: ttest
-  logical :: ttestmatch
-  logical :: gonextkn
+  logical :: skip_neighbor
 ! diffraction variables 
   integer(pin) :: idiff,waitfordiff,diff_counter
   real(pr), dimension(amesh%Nnodes) :: secondary_time
   logical, dimension(amesh%Nnodes) :: checksecondary
-  logical :: logic_contrast,logic_diff,logic_conic
   integer(pin), parameter :: waitdiffthres=25
-  integer(pin) :: icounter
   logical :: reloop,firstrun,diffoccur
 
-! ntoc is not used anymore in this version. We use FVsNodes instead
+! this version uses only the node-to-node list nton
 
-!   verbose=.true.
+   verbose=0
 
-! initialize the secondary distance array
-  secondary_time = time   ! distarray = secondary sources
+! initialize the secondary array
+  if (.not.allocated(kappa)) allocate(kappa(amesh%Nnodes))
+  if (.not.allocated(mode)) allocate(mode(amesh%Nnodes))
+  if (size(kappa) /= amesh%Nnodes) then
+     deallocate(kappa)
+     allocate(kappa(amesh%Nnodes))
+  endif
+  if (size(mode) /= amesh%Nnodes) then
+     deallocate(mode)
+     allocate(mode(amesh%Nnodes))
+  endif
+  if (verbose == 3) then
+     if (.not.allocated(sface)) allocate(sface(amesh%Nnodes))
+     if (.not.allocated(shead)) allocate(shead(amesh%Nnodes))
+     if (.not.allocated(splane)) allocate(splane(amesh%Nnodes))
+     if (.not.allocated(sedge)) allocate(sedge(amesh%Nnodes))
+     if (.not.allocated(origidnode)) allocate(origidnode(amesh%Nnodes))
+     if (size(sface) /= amesh%Nnodes) then
+        deallocate(sface)
+        allocate(sface(amesh%Nnodes))
+     endif
+     if (size(shead) /= amesh%Nnodes) then
+        deallocate(shead)
+        allocate(shead(amesh%Nnodes))
+     endif
+     if (size(splane) /= amesh%Nnodes) then
+        deallocate(splane)
+        allocate(splane(amesh%Nnodes))
+     endif
+     if (size(sedge) /= amesh%Nnodes) then
+        deallocate(sedge)
+        allocate(sedge(amesh%Nnodes))
+     endif
+     if (size(origidnode) /= amesh%Nnodes) then
+        deallocate(origidnode)
+        allocate(origidnode(amesh%Nnodes))
+     endif
+     sface = infinity
+     shead = infinity
+     splane = infinity
+     sedge = infinity
+     origidnode = -1._pr
+  endif
+
+  secondary_time = time   !secondary sources
   checksecondary=.true.   !assume all points have been checked
 !  checksecondary=.false.  ! assume no points have been checked
 
@@ -86,7 +168,7 @@ subroutine timeonevsall2dV2(amesh,adiff)
 
   ! designate nodal points that will be checked as secondary sources
   if (.not.adiff%fast) then
-      do i = 1,adiff%Nnodes
+      do i = 1,adiff%NdiffNodes
          checksecondary(adiff%nodes(i))=.false.
       enddo
   endif
@@ -109,77 +191,81 @@ subroutine timeonevsall2dV2(amesh,adiff)
         pcur=>pcur%next
      endif
      pcur%idnode=i
+     kappa(i) = 0._pr
+     mode(i) = 1
      inthelist(i)=.true.
      ntodo%previous=>pcur ! linking the current list position to the first element ntodo
   enddo
 
-   if (verbose) call printlist(ntodo)
-   if (verbose) write(*,*) 'entering in the ntodo list management loop'
-
+   if (verbose == 2) call printlist(ntodo)
+   if (verbose == 1) write(*,*) 'entering in the ntodo list management loop'
+   call flush()
 ! initializing reloop to true
 ! The condition is changed or not at the end of the loop
 ! The fast first loop is mandatory with a null distance offset
    reloop=.true.
    firstrun=.true.
    diffoccur=.false.
-   do while (reloop)  ! loop over diffraction points 
+   do while (reloop)  ! I loop over diffraction points 
 
 ! loop on the to do list 
-    do while (associated(ntodo))
+    do while (associated(ntodo)) ! II loop over the nodes in the ntodo list
 ! searching the node with the minimum time in the ntodo list : pmin
-      if (verbose) call printlist(ntodo)
+!      if (verbose == 2) call printlist(ntodo)
+       if (verbose == 1) call printlist(ntodo)
        call lookformin(ntodo,secondary_time,amesh%Nnodes,pmin)
-       if (verbose) write(*,*) 'propagating time from node #',pmin%idnode-1
-       if (verbose) write(*,*) 'its own time is :',time(pmin%idnode)
+
+       if (verbose == 1) write(*,*) 'propagating time from node #',pmin%idnode-1
+       if (verbose == 2) write(*,*) 'its own time is :',time(pmin%idnode)
 
 !    initilisation of the sweep loop
       hasbeenupdated=.true.
       toggle=2
-      icounter = 0
-      do while (hasbeenupdated)
+      do while (hasbeenupdated) ! III loop on sweeps from pmin
         hasbeenupdated=.false.
-        icounter = icounter+1
         toggle=3-toggle   !    toggle variable swap state between 1 and 2 at each sweep
-        if (verbose) then
+        if (verbose == 1) then
           if (toggle==1) write(*,*) 'sweep forward'
           if (toggle==2) write(*,*) 'sweep backward'
         endif
-        
-!    alternating the loop direction on FVsNodes(pmin%idnode,:,1) which represents the set
-!    of nodes attached to pmin%idnode when FVsNodes is not null.
+! tuning back to a node list reading nton (node to node)
+! this time version uses a node-to-node list
         if (toggle==1) then
-           kn_start = 1
-           kn_end = amesh%Nnodes
-           loopdirection=1
+           pcure=>nton(pmin%idnode)%ptr
         else
-            kn_start = amesh%Nnodes
-            kn_end = 1
-           loopdirection=-1
+           pcure=>last
         endif
-
-!    node list reading (was a list reading of ntoc in the previous version)
-        do kn = kn_start,kn_end,loopdirection           
-!          cycle if the node kn is not attached to pmin%idnode
-           if (amesh%FVsNodes(pmin%idnode,kn,1)==0) cycle ! nodes pmin and kn are not linked in the mesh
-           
-           if (verbose) write(*,*) '####################################################'
-           if (verbose) write(*,*) 'working to extent node ',pmin%idnode-1,' to ', kn-1
-
+! going through all the nodes connected to pmin%idnode - pcure is a pointer to a node
+        do while (associated(pcure)) ! IV loop on nodes connected to pmin%idnode  
+!
+! pmin%idnode is the node called 1
+! pcure%idnode is the node called 3
+!
+! the -1 is to shift the fortran index to the paraview index convention           
+           if (verbose == 1) write(*,*) '####################################################'
+           if (verbose == 1) write(*,*) 'working to extent node ',pmin%idnode-1,' to ', pcure%idnode-1
+           kn=pcure%idnode ! kn is the current node to update
+           skip_neighbor = .false.
+           if (verbose == 1) write(*,*) 'considering node ',kn-1
+! cell index and edge length are stored on the canonical edge record
+! integer(pin), dimension(2) :: cellonedge
 !          definition of the cell indexes and node indexes on both side of the edge
-           idcell=amesh%FVsNodes(pmin%idnode,kn,:) ! idcell(2) is the 2 cell indexes on each side of the edge (pmin%idnode,kn)
+           idcell=pcure%ref%cellonedge ! array of size 2
+! idnode are the third nodes of each cell
            idnode(1)=sum(amesh%cell(idcell(1),:))-kn-pmin%idnode ! sum of the node indexes of the cell minus the 2 known indexes
            if (idcell(2) == 0) then
               idnode(2)=0
            else
               idnode(2)=sum(amesh%cell(idcell(2),:))-kn-pmin%idnode
            endif
-
-!     loop on the two sides of the edge
+!
+! idnode(1) is called 2a and idnode(2) is called 2b
+!    
 !     the axis system is traslated and rotated each time with pmin%idnode at the origin (0,0),
 !     idnode(i) on the x-axis and kn in the semispace (y>0)
 
 !     common values before the inner loop on the two side cells
-           tri_ops%d13=donedge(amesh,pmin%idnode,kn)
+           tri_ops%d13=pcure%ref%donedge
            tri_ops%t1=secondary_time(pmin%idnode)
            tri_ops%k1=kappa(pmin%idnode)
 
@@ -190,10 +276,9 @@ subroutine timeonevsall2dV2(amesh,adiff)
               tedge=tri_ops%t1+tri_ops%d13/velocity(idcell(1))
            endif
            kedge=min(tri_ops%k1+tri_ops%d13,infinity)
-           if (verbose) write(*,*) 'tedge : ',tedge
+           if (verbose == 2) write(*,*) 'tedge : ',tedge
 
 !     lists of the operator to consider :
-
 !      - curved 2 tface(2) and two thead(2)
 !      - planar 2 tplane(2)
           thead = infinity 
@@ -203,13 +288,15 @@ subroutine timeonevsall2dV2(amesh,adiff)
 !     loop on the two side cells
            tri_ops%t2a = infinity 
            tri_ops%t2b = infinity
-           do i=1,2
-              if (verbose) write(*,*) "cell number : ",i,idcell(i)-1
-              if (idcell(i) == 0) cycle
-              tri_ops%d12=donedge(amesh,pmin%idnode,idnode(i))
-              tri_ops%d23=donedge(amesh,idnode(i),kn)
-              lowercell=find_face_cell_v2(idcell(i),pmin%idnode,idnode(i),amesh%nNodes,amesh%FVsNodes)
-              !lowercell=sum(amesh%FVsNodes(pmin%idnode,idnode(i),:))-idcell(i) Please test this alternative
+
+           do i=1,2 ! V loop on side cells
+              if (verbose == 2) write(*,*) "cell number : ",i,idcell(i)-1
+              if (idcell(i) == 0) cycle ! may only happen for i=2 - The cell is on the border of the mesh
+! using the call to get_donedge which also retrieves the two cells on each side of the edge 12
+              tri_ops%d12=get_donedge(amesh,nton,pmin%idnode,idnode(i),cellonedge12)
+              tri_ops%d23=get_donedge(amesh,nton,idnode(i),kn)
+! the lower cell is the other cell respect to idcell(i)
+              lowercell=sum(cellonedge12)-idcell(i) ! may be zero if there is no cell beneath - this case is treated below
               tri_ops%v1=velocity(idcell(i))
 
 !             computation of the position of kn in the local system through trilateration
@@ -282,65 +369,43 @@ subroutine timeonevsall2dV2(amesh,adiff)
 
 ! curved operators                
                if (do_tface) call calc_tcircle(tri_ops,kface(i),tface(i),verbose)
-               if (verbose) write(*,*) 'tface : ',do_tface,tface(i)
+               if (verbose == 2) write(*,*) 'tface : ',do_tface,tface(i)
+
+! head wave operator
                if (do_thead) call calc_thead(tri_ops,khead,thead(i))
 
 ! planar operator                
-               if (do_tplane) then
-                  call calc_tplane(tri_ops,tplane(i),kn,pmin%idnode)
-                  ! if (kn == 6392)  then 
-                  !    write(*,*) 'do tplane for 6392'
-                  !    write(*,*) icounter,pmin%idnode,tplane(i)
-                  !    write(*,*) tri_ops%t1,tri_ops%t2
-                  ! endif
+               if (do_tplane) call calc_tplane(tri_ops,tplane(i),kn,pmin%idnode)
 
-               endif 
-
-                if (verbose) then 
-                  write(*,*) '---------------------------------------'
-                  write(*,*) "using idnode : ",idnode(i)-1
-                  if (i==1) then
-                     write(*,*) 'First Cell print out: tedge,tplane,tface,thead'
-                  else
-                     write(*,*) 'second Cell print out: tedge,tplane,tface,thead'
-                  endif
-                  write(*,*) tedge,tplane(i),tface(i),thead(i)
-                  write(*,'(a,e12.4,e12.4)')  "kappa 1 & 2 : ",tri_ops%k1,tri_ops%k2
-                  write(*,*) 'kedge and kface for point 3 : ',kedge,kface(i)
-                endif 
                ! if (tplane /= infinity .or. tface /= infinity) tedge = infinity      
                if (i == 1) then    
                   tri_ops%d12a = tri_ops%d12
                   tri_ops%d23a = tri_ops%d23
-                  tri_ops%va = tri_ops%v1
                   tri_ops%t2a = tri_ops%t2
                else 
                   tri_ops%d12b = tri_ops%d12
                   tri_ops%d23b = tri_ops%d23
-                  tri_ops%vb = tri_ops%v1
                   tri_ops%t2b = tri_ops%t2
                endif    
 
-           enddo ! loop on side cells
+           enddo ! V loop on side cells
 
 !       best estimate for kn
           ttest=min(tedge,tplane(1),tplane(2),tface(1),tface(2),thead(1),thead(2))
 
 
-         !   if (verbose) write(*,*) 'ttest : ',ttest
-           if (verbose) then 
+           if (verbose == 2) then 
             write(*,*) 'ttest : ',ttest
             write(*,*) 'edge:   ',tedge
             write(*,*) 'face: ', tface(1),tface(2)
             write(*,*) 'head: ',thead(1),thead(2)
-            verbose=.false.
            endif
 
 !       WORSE move to the next node attached to pmin%inode           
-           if (ttest > secondary_time(kn)) cycle
+           if (ttest > secondary_time(kn)) skip_neighbor = .true.
 
 ! save all estimates 
-         if (verbose) then 
+         if ((.not.skip_neighbor).and.(verbose == 3)) then 
            sface(kn) = min(tface(1),tface(2),sface(kn))
            shead(kn) = min(thead(1),thead(2),shead(kn) )
            splane(kn) = min(tplane(1),tplane(2),splane(kn))
@@ -352,40 +417,34 @@ subroutine timeonevsall2dV2(amesh,adiff)
 
 !    if the result is equal to the time in kn with a smaller mode, do an update of mode and kappa
 
-!        ttestmatch=.false.
-!        gonextkn=.false.
-!        do i=1,2
-!           call test_face(ttest,tface(i),kface(i),secondary_time(kn),mode(kn),kappa(kn),gonextkn,ttestmatch)
-!           if ((gonextkn).or.(ttestmatch)) exit 
-!        enddo
-!         do i=1,2
-!           call test_head(ttest,thead(i),infinity,secondary_time(kn),mode(kn),kappa(kn),gonextkn,ttestmatch)
-!           if ((gonextkn).or.(ttestmatch)) exit 
-!        enddo
-!      if (gonextkn) cycle
-!        do i=1,2
-!         call test_plane(ttest,tplane(i),secondary_time(kn),mode(kn),kappa(kn),gonextkn,ttestmatch)
-!         if ((gonextkn).or.(ttestmatch)) exit
-!        enddo              
-!        if (gonextkn) cycle
-!    tface is the best (mode=1)
+         if (.not.skip_neighbor) then
          if (abs(ttest-tface(1)) <= water_level(ttest)) then
-            if (.not.better_face(ttest,tface(1),kface(1),secondary_time(kn),mode(kn),kappa(kn))) cycle
+            if (.not.better_face(ttest,tface(1),kface(1),secondary_time(kn),mode(kn),kappa(kn))) skip_neighbor = .true.
          elseif (abs(ttest-tface(2)) <= water_level(ttest)) then
-            if (.not.better_face(ttest,tface(2),kface(2),secondary_time(kn),mode(kn),kappa(kn))) cycle
+            if (.not.better_face(ttest,tface(2),kface(2),secondary_time(kn),mode(kn),kappa(kn))) skip_neighbor = .true.
 !    thead is better (mode=2) or equal but with a better mode
          elseif (abs(ttest-thead(1)) <= water_level(ttest)) then
-            if (.not.better_head(ttest,thead(1),infinity,secondary_time(kn),mode(kn),kappa(kn))) cycle
+            if (.not.better_head(ttest,thead(1),infinity,secondary_time(kn),mode(kn),kappa(kn))) skip_neighbor = .true.
          elseif (abs(ttest-thead(2)) <= water_level(ttest)) then
-            if (.not.better_head(ttest,thead(2),infinity,secondary_time(kn),mode(kn),kappa(kn))) cycle
+            if (.not.better_head(ttest,thead(2),infinity,secondary_time(kn),mode(kn),kappa(kn))) skip_neighbor = .true.
 !    tedge is better (mode=4) or equal but with a better mode
          elseif (abs(ttest-tedge) <= water_level(ttest)) then
-            if (.not.better_edge(ttest,tedge,kedge,secondary_time(kn),mode(kn),kappa(kn))) cycle
+            if (.not.better_edge(ttest,tedge,kedge,secondary_time(kn),mode(kn),kappa(kn))) skip_neighbor = .true.
 !    tplane is the best (mode=5)
          elseif (abs(ttest-tplane(1)) <= water_level(ttest)) then
-            if (.not.better_plane(ttest,tplane(1),secondary_time(kn),mode(kn),kappa(kn))) cycle
+            if (.not.better_plane(ttest,tplane(1),secondary_time(kn),mode(kn),kappa(kn))) skip_neighbor = .true.
          elseif (abs(ttest-tplane(2)) <= water_level(ttest)) then
-            if (.not.better_plane(ttest,tplane(2),secondary_time(kn),mode(kn),kappa(kn))) cycle
+            if (.not.better_plane(ttest,tplane(2),secondary_time(kn),mode(kn),kappa(kn))) skip_neighbor = .true.
+         endif
+         endif
+         if (skip_neighbor) then
+            if (toggle==1) then
+               last=>pcure
+               pcure=>pcure%next
+            else
+               pcure=>pcure%previous
+            endif
+            cycle
          endif
 !       if we are here, we have updated kn
         hasbeenupdated=.true.
@@ -393,7 +452,7 @@ subroutine timeonevsall2dV2(amesh,adiff)
 !       update if needed ntodo list with kn
 !       
         if (.not.inthelist(kn)) then
-           if (verbose) write(*,*) ' adding ',kn-1,' to the list', mode(kn),secondary_time(kn)
+           if (verbose == 2) write(*,*) ' adding ',kn-1,' to the list', mode(kn),secondary_time(kn)
            inthelist(kn)=.true.
            allocate(ntodo%previous%next)
            nullify(ntodo%previous%next%next)
@@ -401,15 +460,19 @@ subroutine timeonevsall2dV2(amesh,adiff)
            ntodo%previous%next%idnode=kn
            ntodo%previous=>ntodo%previous%next
         endif
-      enddo ! kn
-   enddo ! hasbeenupdated
+! go to the next node connected to pmin%idnode
+           if (toggle==1) then
+              last=>pcure
+              pcure=>pcure%next
+           else
+              pcure=>pcure%previous
+           endif
+      enddo ! IV loop on nodes connected to pmin%idnode      
+   enddo ! III loop on sweeps from pmin
 
 ! diff case and no diffraction has been detected yet
    if (.not.firstrun.and..not.diffoccur) then
 
-!      if (pmin%idnode==6.or.pmin%idnode==137)then 
-!       write(*,*) pmin%idnode,time(pmin%idnode), secondary_time(pmin%idnode)
-!      endif
       if (secondary_time(pmin%idnode) < time(pmin%idnode)) then
          ! if (secondary_time(pmin%idnode)+time(idiff) < time(pmin%idnode)) then
 !   diffraction detected
@@ -429,9 +492,9 @@ subroutine timeonevsall2dV2(amesh,adiff)
    endif
 ! remove pmin element from the to do list
     inthelist(pmin%idnode)=.false.
-    if (verbose) write(*,*) "removing ",pmin%idnode-1," from the list"
+    if (verbose == 2) write(*,*) "removing ",pmin%idnode-1," from the list"
     call removepminfromthelist(pmin,ntodo)
-    if (verbose) read(*,*)
+    if (verbose == 2) read(*,*)
 
    enddo ! associated(ntodo)
 
@@ -439,7 +502,7 @@ subroutine timeonevsall2dV2(amesh,adiff)
 ! fast case
     if (adiff%fast) then
       time = secondary_time
-      write(*,*) 'exiting based on fast protocol ....'
+      if (verbose == 1) write(*,*) 'exiting based on fast protocol ....'
 ! first case of general exit : only one run is requested
       reloop=.false.
       cycle ! to the reloop
@@ -463,7 +526,7 @@ subroutine timeonevsall2dV2(amesh,adiff)
    idiff=nextdiffid(time,amesh%Nnodes,checksecondary)
 ! second case of general exit : all the choosen secondary source have been investigated.
    !  diff_counter = diff_counter+1
-   !  if (diff_counter > adiff%Nnodes) then
+   !  if (diff_counter > adiff%NdiffNodes) then
    !    reloop=.false.
    !    cycle
    ! endif
@@ -487,14 +550,14 @@ subroutine timeonevsall2dV2(amesh,adiff)
     inthelist(idiff)=.true.
 ! reinitialize time array
     secondary_time=infinity
-    kappa(:) = 0._pr ! reset the curvature 
-    mode(:) = 0   ! what do with the mode for the diffraction source 
+    kappa(idiff) = 0._pr
+    mode(idiff) = 1
     secondary_time(idiff) = time(idiff) !0._pr
     firstrun=.false.
    enddo ! end reloop section
 
   return 
-end subroutine timeonevsall2dV2
+end subroutine timeonevsall2d
 !###############################################################################
 function better_face(ttest,tface,kface,time,mode,kappa)
 ! check if faces produce fastest time 
@@ -620,7 +683,8 @@ end subroutine calc_tonedge
 !###############################################################################
 function calc_trilat(tri_ops,verbose)
    type(ops) :: tri_ops
-   logical :: calc_trilat,verbose
+   logical :: calc_trilat
+   integer(pin) :: verbose
 
    ! function calc_trilat(d12,d13,d23,t1,t2,k1,k2,v,x,y,xc,yc,a)
    ! computes the coordinates in 2D plane of three vertices V1,V2,V3 making the
@@ -640,21 +704,21 @@ function calc_trilat(tri_ops,verbose)
 
    po1%x=tri_ops%x3
    po1%y=tri_ops%y3
- ! if (verbose) write(*,*) 'tcircle - x,y :',x,y
+ ! if (verbose==3) write(*,*) 'tcircle - x,y :',x,y
 
-   tri_ops%xc2=(tri_ops%d12**2._pr-tri_ops%k2**2._pr+tri_ops%k1**2._pr)/(2._pr*tri_ops%d12)
-   yc_sqrt = tri_ops%k1**2._pr-tri_ops%xc2**2._pr
+   tri_ops%xc=(tri_ops%d12**2._pr-tri_ops%k2**2._pr+tri_ops%k1**2._pr)/(2._pr*tri_ops%d12)
+   yc_sqrt = tri_ops%k1**2._pr-tri_ops%xc**2._pr
    if (yc_sqrt < 0._pr) then 
       calc_trilat = .false.
       return
    endif
-   tri_ops%yc2 = -sqrt(yc_sqrt)  ! minus required as this is the virtual source located below the triangle 
+   tri_ops%yc = -sqrt(yc_sqrt)  ! minus required as this is the virtual source located below the triangle 
 
- ! if (verbose) write(*,*) 'tcircle - xc,yc :',xc,yc 
-   po2%x = tri_ops%xc2
-   po2%y = tri_ops%yc2
- ! if (verbose) write(*,*) 'tcircle - xc,yc :',xc,yc
-   tri_ops%a2 = x_entering(po1,po2)
+ ! if (verbose==3) write(*,*) 'tcircle - xc,yc :',xc,yc 
+   po2%x = tri_ops%xc
+   po2%y = tri_ops%yc
+ ! if (verbose==3) write(*,*) 'tcircle - xc,yc :',xc,yc
+   tri_ops%a = x_entering(po1,po2)
 
    return 
 end function calc_trilat
@@ -662,7 +726,7 @@ end function calc_trilat
 subroutine calc_tcircle(tri_ops,r3,t3,verbose)
    type(ops) :: tri_ops
    real(pr) :: r3,t3
-   logical :: verbose
+   integer(pin) :: verbose
 
    !use type ops
    ! d13,d23,d12 ! current (?) edge lengths
@@ -670,7 +734,7 @@ subroutine calc_tcircle(tri_ops,r3,t3,verbose)
    ! d12b,d23b,t2b ! value on the second cell
    ! t1,t2 ! current tima at 1 and 2
    ! k1,k2,r1,r2 ! curvature and 
-   ! x3,y3,xc1,yc1,xc2,yc2 ! position of the 3rd point
+   ! x3,y3,xc,yc ! position of the 3rd point
    ! a1,a2
    ! v1,v2,v3 ! v1 in the cell, v2 in the lowercell
    ! va,vb
@@ -684,30 +748,29 @@ subroutine calc_tcircle(tri_ops,r3,t3,verbose)
    ! distance between (xc,-yc) and V0 (x,y)
    ! The position of V3 and C (the virtual origin) in the local reference system is returned
    ! with po1 and po2 respectively
-     real(pr) :: d_c2_a1,d_a1_3,ta1
+     real(pr) :: d_c_a,d_a_3,ta
 
      t3 = infinity 
-   !   if (tri_ops%a1 < -epsilon(tri_ops%a1) .or. tri_ops%a1 > tri_ops%d12) then
-      if (tri_ops%a2 < -water_level(tri_ops%a2) .or. tri_ops%a2-tri_ops%d12 > water_level(tri_ops%a2)) then
+      if (tri_ops%a < -water_level(tri_ops%a) .or. tri_ops%a-tri_ops%d12 > water_level(tri_ops%a)) then
          t3=infinity 
-   !    if (verbose) write(*,*) 'dcircle - a : ',a
-   !    if (verbose) write(*,*) 'dcircle - a outside range'
+   !    if (verbose==3) write(*,*) 'dcircle - a : ',a
+   !    if (verbose==3) write(*,*) 'dcircle - a outside range'
         return
      endif
 
-     d_c2_a1 = sqrt((tri_ops%a2-tri_ops%xc2)**2._pr+tri_ops%yc2**2._pr)
-     d_a1_3 = sqrt((tri_ops%a2-tri_ops%x3)**2._pr+tri_ops%y3**2._pr)
-     r3 = d_c2_a1 + d_a1_3
+     d_c_a = sqrt((tri_ops%a-tri_ops%xc)**2._pr+tri_ops%yc**2._pr)
+     d_a_3 = sqrt((tri_ops%a-tri_ops%x3)**2._pr+tri_ops%y3**2._pr)
+     r3 = d_c_a + d_a_3
 
-     if (d_c2_a1-tri_ops%k1 < 0.) then
-        ta1 = tri_ops%t1+(d_c2_a1-tri_ops%k1)/tri_ops%v1
+     if (d_c_a-tri_ops%k1 < 0.) then
+        ta = tri_ops%t1+(d_c_a-tri_ops%k1)/tri_ops%v1
      else
-        ta1 = tri_ops%t1+(d_c2_a1-tri_ops%k1)/tri_ops%v2
+        ta = tri_ops%t1+(d_c_a-tri_ops%k1)/tri_ops%v2
      endif
-     t3 = ta1 + d_a1_3/tri_ops%v1
+     t3 = ta + d_a_3/tri_ops%v1
 
-     if (verbose) then
-        write(*,*) "d_c2_a1,tri_ops%k1,d_c2_a1-tri_ops%k1",d_c2_a1,tri_ops%k1,d_c2_a1-tri_ops%k1
+     if (verbose==3) then
+        write(*,*) "d_c_a,tri_ops%k1,d_c_a-tri_ops%k1",d_c_a,tri_ops%k1,d_c_a-tri_ops%k1
         write(*,*) " tri_ops%t1,(r3-tri_ops%k1),t3",tri_ops%t1,(r3-tri_ops%k1),t3
         write(*,*) "tri_ops%t1,tri_ops%t2",tri_ops%t1,tri_ops%t2
      endif
@@ -731,15 +794,15 @@ subroutine calc_thead(tri_ops,r3,t3)
    ! e3c is the unit vector pointing from V3 to (xc,-yc)
 
    real(pr) :: r3c,rnc,rn3
-   real(pr) :: r_n_a2,r_c1_a2,ta2,d_c2_a2
+   real(pr) :: r_n_a2,r_c1_a2,ta,d_c_a
    real(pr) :: cos_c1m,cos_cnm,cos_c31
     
    t3 = infinity
 
-   if ((abs(tri_ops%xc2) <= epsilon(1._pr)).and.(tri_ops%yc2 <= epsilon(1._pr))) return 
+   if ((abs(tri_ops%xc) <= epsilon(1._pr)).and.(tri_ops%yc <= epsilon(1._pr))) return 
    ! cos_c1m = (-x*xc-y*yc)/sqrt(xc**2._pr+yc**2._pr)/sqrt(x**2._pr+y**2._pr)
-   cos_c1m = (-tri_ops%x3*tri_ops%xc2-tri_ops%y3*tri_ops%yc2)     &
-              /sqrt(tri_ops%xc2**2._pr+tri_ops%yc2**2._pr)      & ! Note: this line produces a division by zero     
+   cos_c1m = (-tri_ops%x3*tri_ops%xc-tri_ops%y3*tri_ops%yc)     &
+              /sqrt(tri_ops%xc**2._pr+tri_ops%yc**2._pr)      & ! Note: this line produces a division by zero     
               /sqrt(tri_ops%x3**2._pr+tri_ops%y3**2._pr)
 
    if (cos_c1m < 0._pr) return 
@@ -747,9 +810,9 @@ subroutine calc_thead(tri_ops,r3,t3)
  
    if (cos_c1m > cos_cnm) return
    
-   r3c = sqrt((tri_ops%xc2-tri_ops%x3)**2._pr+(tri_ops%yc2-tri_ops%y3)**2._pr)
+   r3c = sqrt((tri_ops%xc-tri_ops%x3)**2._pr+(tri_ops%yc-tri_ops%y3)**2._pr)
    ! r3c = sqrt((xc-x)**2._pr+(yc-y)**2._pr)
-   cos_c31 = (-tri_ops%x3*(tri_ops%xc2-tri_ops%x3)-tri_ops%y3*(tri_ops%yc2-tri_ops%y3))   &
+   cos_c31 = (-tri_ops%x3*(tri_ops%xc-tri_ops%x3)-tri_ops%y3*(tri_ops%yc-tri_ops%y3))   &
                   /r3c/sqrt(tri_ops%x3**2._pr+tri_ops%y3**2._pr)
    ! cos_c31 = (-x*(xc-x)-y*(yc-y))/r3c/sqrt(x**2._pr+y**2._pr)
    
@@ -760,12 +823,12 @@ subroutine calc_thead(tri_ops,r3,t3)
    rn3 = r3c*cos_c31-rnc*cos_cnm
    ! t3 = rnc/tri_ops%v1+rn3/tri_ops%v3    !
 
-   d_c2_a2 = sqrt((tri_ops%a2-tri_ops%xc2)**2._pr+tri_ops%yc2**2._pr)
-   ta2 = tri_ops%t1+(d_c2_a2-tri_ops%k1)/tri_ops%v2
+   d_c_a = sqrt((tri_ops%a-tri_ops%xc)**2._pr+tri_ops%yc**2._pr)
+   ta = tri_ops%t1+(d_c_a-tri_ops%k1)/tri_ops%v2
 
-   r_c1_a2 = sqrt((tri_ops%a2-tri_ops%xc2)**2._pr+tri_ops%yc2**2._pr)
+   r_c1_a2 = sqrt((tri_ops%a-tri_ops%xc)**2._pr+tri_ops%yc**2._pr)
    r_n_a2 = rnc - r_c1_a2
-   t3 = ta2 + r_n_a2/tri_ops%v1 +rn3/tri_ops%v3    !
+   t3 = ta + r_n_a2/tri_ops%v1 +rn3/tri_ops%v3    !
    r3 = rnc+rn3 !rn3     ! kappa value 
 
 
@@ -981,5 +1044,51 @@ subroutine calc_theory(amesh,ttheory)
    enddo 
 return 
 end subroutine calc_theory 
+!#########################################################
+function nextdiffid(time,n,checksecondary)
+! find the minimum value in dist skipping the vertex checked yet and returns
+! its position (id)
+  integer(pin) :: nextdiffid,n
+  real(pr), dimension(n) :: time
+  logical, dimension(n) :: checksecondary
+
+  integer(pin) :: i
+  real(pr) :: vmin
+
+  nextdiffid=0
+  vmin=infinity
+  do i=1,n
+     if (checksecondary(i)) cycle
+     if (time(i) < vmin) then
+        vmin=time(i)
+        nextdiffid=i
+     endif
+  enddo
+  return
+end function nextdiffid
  !###############################################################################
-end module calc_time
+subroutine lookformin(ntodo,anarray,n,pmin)
+  use lists
+
+  type(listn), pointer :: pmin,ntodo
+  integer(pin) :: n
+  real(pr), dimension(n) :: anarray
+
+  type(listn), pointer :: pcur
+  real(pr) :: vmin
+
+  pcur=>ntodo
+  vmin=anarray(pcur%idnode)
+  pmin=>pcur
+  do while (associated(pcur%next))
+     pcur=>pcur%next
+     if (anarray(pcur%idnode) < vmin) then
+        vmin=anarray(pcur%idnode)
+        pmin=>pcur
+     endif
+  enddo
+  return
+end subroutine lookformin
+
+!###############################################################################
+end module time
